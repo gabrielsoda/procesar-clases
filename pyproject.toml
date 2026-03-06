@@ -1,0 +1,9 @@
+[project]
+name = "tuia-procesar-clases"
+version = "0.1.0"
+description = "Script para automatizar el ingreso de clases grabadas al vault de Obsidian"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = []
