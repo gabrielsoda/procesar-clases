@@ -21,6 +21,7 @@ Uso:
   (o desde el alias 'pc' en PowerShell)
 """
 
+
 import json
 import re
 import subprocess
@@ -28,9 +29,7 @@ import sys
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Configuración
-# ---------------------------------------------------------------------------
+# archivo de configuracion
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
@@ -43,9 +42,7 @@ def cargar_config() -> dict:
         return json.load(f)
 
 
-# ---------------------------------------------------------------------------
 # Lectura y procesamiento de templates de Obsidian
-# ---------------------------------------------------------------------------
 
 def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
     """
@@ -121,10 +118,7 @@ Aclaración extra:
 ---"""
 
 
-# ---------------------------------------------------------------------------
-# Detección de videos pendientes
-# ---------------------------------------------------------------------------
-
+# Detección regex de videos pendientes 
 VIDEO_PATRON = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,3})\.(mkv|mp4)$",
     re.IGNORECASE,
@@ -141,14 +135,16 @@ def detectar_videos_pendientes(videos_dir: Path, codigos_validos: set, extension
     pendientes = []
     for ext in extensiones:
         for video in videos_dir.glob(f"*.{ext}"):
-            m = VIDEO_PATRON.match(video.name)
+            m = VIDEO_PATRON.match(video.name) # se valida el nombre con regex
             if not m:
-                continue
-            fecha, num_clase, codigo, _ = m.groups()
-            codigo = codigo.upper()
+                continue                    # si no cumple el patron se ignora
+            fecha, num_clase, codigo, _ = m.groups() #si sí cumple extrae las partes del nombre
+            codigo = codigo.upper()         # por las dudas se pasa a mayusculas
             if codigo not in codigos_validos:
-                continue
+                continue                    # si el codigo no esta en config se descarta
             txt_path = video.with_suffix(".txt")
+            # si ya se generó previamente el txt (ya hay un txt con el mismo nombre)
+            # continue
             if txt_path.exists():
                 continue
             pendientes.append({
@@ -162,9 +158,7 @@ def detectar_videos_pendientes(videos_dir: Path, codigos_validos: set, extension
     return pendientes
 
 
-# ---------------------------------------------------------------------------
-# Transcripción con WhisperX
-# ---------------------------------------------------------------------------
+# transcripción con WhisperX
 
 def transcribir(video_path: Path, whisperx_exe: Path, model: str) -> Path | None:
     """
@@ -191,9 +185,7 @@ def transcribir(video_path: Path, whisperx_exe: Path, model: str) -> Path | None
     return txt_path
 
 
-# ---------------------------------------------------------------------------
 # Manejo de notas en el vault
-# ---------------------------------------------------------------------------
 
 def leer_txt(txt_path: Path) -> str:
     return txt_path.read_text(encoding="utf-8")
@@ -211,9 +203,10 @@ def clase_anterior(carpeta_materia: Path, fecha: str, num_clase: str, codigo: st
         key=lambda f: f.name,
     )
     nombre_actual = f"{fecha}_{num_clase}{codigo}.md"
+    # Filtramos notas anteriores (por nombre, que incluye fecha)
     anteriores = [n for n in notas if n.name < nombre_actual]
     if anteriores:
-        return anteriores[-1].stem
+        return anteriores[-1].stem  # nombre sin .md
     return None
 
 
@@ -263,9 +256,7 @@ def crear_nota_clase(carpeta_materia: Path, nombre_base: str, frontmatter: str, 
     return ruta
 
 
-# ---------------------------------------------------------------------------
-# Pipeline principal
-# ---------------------------------------------------------------------------
+# Flujo principal
 
 def procesar(config: dict):
     videos_dir  = Path(config["videos_dir"])
@@ -294,8 +285,6 @@ def procesar(config: dict):
     for p in pendientes:
         print(f"  - {p['video'].name}  →  {materias[p['codigo']]}")
 
-    print("\n" + "=" * 60)
-
     for p in pendientes:
         video       = p["video"]
         fecha       = p["fecha"]
@@ -307,22 +296,22 @@ def procesar(config: dict):
 
         print(f"\n[{codigo}] Procesando: {video.name}")
 
-        # 1. Transcribir
+        # 1. Se efectúa la transcripción
         txt_path = transcribir(video, whisperx_exe, model)
         if txt_path is None:
             print(f"  [SKIP] Se omite {video.name} por error en transcripción.")
             continue
 
-        # 2. Leer texto
+        # 2. Se lee el texto y se lo guarda en la variable homónima
         texto = leer_txt(txt_path)
 
-        # 3. Crear carpeta Transcripciones si no existe
+        # 3. Se crea carpeta Transcripciones si no existe
         carpeta_transcripciones.mkdir(parents=True, exist_ok=True)
 
-        # 4. Crear nota _t (texto crudo, sin frontmatter)
+        # 4. En obsidian se crea nota _t (texto crudo, sin frontmatter)
         crear_nota_transcripcion(carpeta_transcripciones, nombre_base, texto)
 
-        # 5. Detectar clase anterior
+        # 5. Chequea clase anterior
         anterior = clase_anterior(carpeta_materia, fecha, num_clase, codigo)
         if anterior:
             print(f"  Clase anterior detectada: {anterior}")
@@ -337,7 +326,7 @@ def procesar(config: dict):
             print(f"  Usando frontmatter genérico para {codigo}")
             frontmatter = frontmatter_generico(anterior)
 
-        # 7. Crear nota de clase con frontmatter del template
+        # 7. se crea nota de clase con frontmatter del template
         nota_nueva = crear_nota_clase(
             carpeta_materia=carpeta_materia,
             nombre_base=nombre_base,
@@ -345,18 +334,16 @@ def procesar(config: dict):
             texto=texto,
         )
 
-        # 8. Actualizar "Siguiente clase" en la nota anterior
+        # 8. Se actualiza "Siguiente clase" en la nota anterior
         if anterior:
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
 
-    print("\n" + "=" * 60)
+    print("\n")
     print("Procesamiento completado.")
 
 
-# ---------------------------------------------------------------------------
-# Entrada
-# ---------------------------------------------------------------------------
+# Comienzo 
 
 if __name__ == "__main__":
     config = cargar_config()
