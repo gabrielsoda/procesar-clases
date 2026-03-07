@@ -1,7 +1,7 @@
 """
 procesar_clases.py
 ==================
-Detecta videos de clases grabados con OBS en C:\Users\Gabi\Videos que siguen
+Detecta videos de clases grabados con OBS en el directorio en el que estén los videos que siguen
 el patrón YYYY-MM-DD_[N][CODIGO].(mkv|mp4), transcribe los que no tienen .txt
 con WhisperX, y genera los archivos .md correspondientes en el vault de Obsidian.
 
@@ -67,12 +67,13 @@ def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
     return m.group(1)
 
 
-def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None) -> str:
+def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None, fecha: str = "") -> str:
     """
     Toma el bloque YAML del template y reemplaza los campos dinámicos:
     - 'Clase anterior' → link a la clase anterior real (o vacío si es la primera)
     - 'Siguiente clase' → siempre vacío al crear (se llena cuando llegue la siguiente)
     - 'estado'         → siempre 'cruda' al crear
+    - 'fecha'          → fecha real extraída del nombre del video (si el campo existe)
 
     Los tokens {{date:...}} que Obsidian inserta en los links de navegación
     son descartados porque el script calcula los valores reales.
@@ -97,6 +98,13 @@ def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None) -> st
         r'\1cruda',
         resultado,
     )
+    # Reemplaza fecha: si existe en el template (usado en OTR y eventualmente otros)
+    if fecha:
+        resultado = re.sub(
+            r'(fecha:\s*).*',
+            rf'\1{fecha}',
+            resultado,
+        )
 
     return resultado
 
@@ -143,8 +151,7 @@ def detectar_videos_pendientes(videos_dir: Path, codigos_validos: set, extension
             if codigo not in codigos_validos:
                 continue                    # si el codigo no esta en config se descarta
             txt_path = video.with_suffix(".txt")
-            # si ya se generó previamente el txt (ya hay un txt con el mismo nombre)
-            # continue
+            # si ya se generó previamente el txt (ya hay un txt con el mismo nombre) continue
             if txt_path.exists():
                 continue
             pendientes.append({
@@ -311,17 +318,19 @@ def procesar(config: dict):
         # 4. En obsidian se crea nota _t (texto crudo, sin frontmatter)
         crear_nota_transcripcion(carpeta_transcripciones, nombre_base, texto)
 
-        # 5. Chequea clase anterior
-        anterior = clase_anterior(carpeta_materia, fecha, num_clase, codigo)
-        if anterior:
-            print(f"  Clase anterior detectada: {anterior}")
-        else:
-            print(f"  No se encontró clase anterior (es la primera de {codigo})")
+        # 5. Chequea clase anterior (no aplica para OTR, son videos sueltos no secuenciales)
+        anterior = None
+        if codigo != "OTR":
+            anterior = clase_anterior(carpeta_materia, fecha, num_clase, codigo)
+            if anterior:
+                print(f"  Clase anterior detectada: {anterior}")
+            else:
+                print(f"  No se encontró clase anterior (es la primera de {codigo})")
 
         # 6. Leer frontmatter del template de Obsidian para esta materia
         fm_raw = leer_template_frontmatter(vault_dir, codigo)
         if fm_raw:
-            frontmatter = aplicar_valores_al_frontmatter(fm_raw, anterior)
+            frontmatter = aplicar_valores_al_frontmatter(fm_raw, anterior, fecha)
         else:
             print(f"  Usando frontmatter genérico para {codigo}")
             frontmatter = frontmatter_generico(anterior)
@@ -334,8 +343,8 @@ def procesar(config: dict):
             texto=texto,
         )
 
-        # 8. Se actualiza "Siguiente clase" en la nota anterior
-        if anterior:
+        # 8. Se actualiza "Siguiente clase" en la nota anterior (no aplica para OTR)
+        if anterior and codigo != "OTR":
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
 
