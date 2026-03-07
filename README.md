@@ -1,6 +1,6 @@
 # tuia-procesar-clases
 
-Script Python que automatiza el ingreso de clases grabadas al vault de Obsidian (TUIA).
+Script personal para automatizar el ingreso de clases grabadas al vault de Obsidian (TUIA). Flujo diseñado luego de bastante experiencia 
 
 ## Flujo de trabajo
 
@@ -23,7 +23,7 @@ Los links `Clase anterior` / `Siguiente clase` se actualizan automáticamente en
 pc
 ```
 
-El alias `pc` ejecuta `uv run procesar_clases.py` desde cualquier directorio.
+El alias `pc` (configurado en el perfil de powershell) ejecuta `uv run procesar_clases.py` desde cualquier directorio.
 El script detecta todos los videos en `C:\Users\Gabi\Videos` que no tienen `.txt` asociado y los procesa en batch.
 
 ## Configuración (`config.json`)
@@ -54,8 +54,8 @@ Ejemplos:
 
 | Valor | Significado |
 |---|---|
-| `cruda` | Transcripción recién ingresada, sin procesar |
-| `procesando` | En proceso de corrección y resumen |
+| `cruda` | Transcripción como sale de Whisper, sin procesar |
+| `procesando` | En proceso de limpieza y resumen |
 | `procesada` | Resumen final completo |
 
 El campo `estado` es la fuente de verdad para el tracking. Se visualiza en Obsidian Bases (`Clases [COD].base` dentro de cada carpeta de materia).

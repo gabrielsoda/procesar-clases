@@ -8,8 +8,13 @@ con WhisperX, y genera los archivos .md correspondientes en el vault de Obsidian
 Flujo por cada video pendiente:
   1. Ejecutar WhisperX → genera .txt en la carpeta de videos
   2. Crear [Materia]/Transcripciones/YYYY-MM-DD_[N][COD]_t.md  (texto crudo)
-  3. Crear [Materia]/YYYY-MM-DD_[N][COD].md  (frontmatter + texto crudo, estado: cruda)
+  3. Crear [Materia]/YYYY-MM-DD_[N][COD].md  (frontmatter del template + texto crudo)
   4. Detectar clase anterior de la misma materia y actualizar links bidireccionales
+
+El frontmatter de cada nota se toma del template correspondiente en
+Templates/Clase de {CODIGO}.md dentro del vault, respetando los campos
+particulares de cada materia. Si no existe el template, se usa un
+frontmatter genérico como fallback.
 
 Uso:
   uv run procesar_clases.py
@@ -20,7 +25,6 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 
@@ -37,6 +41,84 @@ def cargar_config() -> dict:
         sys.exit(1)
     with CONFIG_PATH.open(encoding="utf-8") as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Lectura y procesamiento de templates de Obsidian
+# ---------------------------------------------------------------------------
+
+def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
+    """
+    Lee el archivo Templates/Clase de {CODIGO}.md del vault y extrae
+    el bloque YAML entre los delimitadores ---.
+    Devuelve el bloque completo como string (incluyendo los ---),
+    o None si el template no existe o no tiene frontmatter válido.
+    """
+    template_path = vault_dir / "Templates" / f"Clase de {codigo}.md"
+    if not template_path.exists():
+        print(f"  [AVISO] No se encontró template para {codigo}: {template_path}")
+        return None
+
+    contenido = template_path.read_text(encoding="utf-8")
+
+    # Extrae todo lo que hay entre el primer --- y el segundo ---
+    m = re.match(r"^(---\n.*?---)", contenido, re.DOTALL)
+    if not m:
+        print(f"  [AVISO] El template {template_path.name} no tiene frontmatter válido")
+        return None
+
+    return m.group(1)
+
+
+def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None) -> str:
+    """
+    Toma el bloque YAML del template y reemplaza los campos dinámicos:
+    - 'Clase anterior' → link a la clase anterior real (o vacío si es la primera)
+    - 'Siguiente clase' → siempre vacío al crear (se llena cuando llegue la siguiente)
+    - 'estado'         → siempre 'cruda' al crear
+
+    Los tokens {{date:...}} que Obsidian inserta en los links de navegación
+    son descartados porque el script calcula los valores reales.
+    """
+    resultado = frontmatter
+
+    anterior_valor = f'"[[{anterior}]]"' if anterior else '""'
+
+    resultado = re.sub(
+        r'(Clase anterior:\s*).*',
+        rf'\1{anterior_valor}',
+        resultado,
+    )
+    resultado = re.sub(
+        r'(Siguiente clase:\s*).*',
+        r'\1""',
+        resultado,
+    )
+    # Asegura estado: cruda aunque el template tenga otro valor
+    resultado = re.sub(
+        r'(estado:\s*).*',
+        r'\1cruda',
+        resultado,
+    )
+
+    return resultado
+
+
+def frontmatter_generico(anterior: str | None) -> str:
+    """
+    Frontmatter de fallback usado cuando no existe template para el código.
+    """
+    anterior_valor = f'"[[{anterior}]]"' if anterior else '""'
+    return f"""---
+Campus: 
+Modalidad:
+  - 
+Clase anterior: {anterior_valor}
+Siguiente clase: ""
+estado: cruda
+tags: []
+Aclaración extra: 
+---"""
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +211,9 @@ def clase_anterior(carpeta_materia: Path, fecha: str, num_clase: str, codigo: st
         key=lambda f: f.name,
     )
     nombre_actual = f"{fecha}_{num_clase}{codigo}.md"
-    # Filtramos notas anteriores (por nombre, que incluye fecha)
     anteriores = [n for n in notas if n.name < nombre_actual]
     if anteriores:
-        return anteriores[-1].stem  # nombre sin .md
+        return anteriores[-1].stem
     return None
 
 
@@ -140,16 +221,24 @@ def actualizar_siguiente_clase(nota_anterior_path: Path, nombre_nueva: str):
     """
     En la nota de la clase anterior, actualiza el campo 'Siguiente clase'
     para que apunte a la nueva nota.
+    Cubre dos casos: campo vacío ("") y campo con link previo ([[...]]).
     """
     if not nota_anterior_path.exists():
         return
     contenido = nota_anterior_path.read_text(encoding="utf-8")
-    # Reemplaza el valor de "Siguiente clase" en el frontmatter
+
     nuevo = re.sub(
         r'(Siguiente clase:\s*)"?\[\[.*?\]\]"?',
         f'\\1"[[{nombre_nueva}]]"',
         contenido,
     )
+    # Cubre el caso donde Siguiente clase estaba vacío ("")
+    nuevo = re.sub(
+        r'(Siguiente clase:\s*)""',
+        f'\\1"[[{nombre_nueva}]]"',
+        nuevo,
+    )
+
     if nuevo != contenido:
         nota_anterior_path.write_text(nuevo, encoding="utf-8")
         print(f"  Actualizado 'Siguiente clase' en: {nota_anterior_path.name}")
@@ -164,37 +253,12 @@ def crear_nota_transcripcion(carpeta_transcripciones: Path, nombre_base: str, te
     print(f"  Transcripción cruda: {ruta.relative_to(ruta.parent.parent.parent)}")
 
 
-def crear_nota_clase(
-    carpeta_materia: Path,
-    nombre_base: str,
-    fecha: str,
-    num_clase: str,
-    codigo: str,
-    texto: str,
-    anterior: str | None,
-    campus: str = "",
-    modalidad: str = "",
-):
+def crear_nota_clase(carpeta_materia: Path, nombre_base: str, frontmatter: str, texto: str):
     """
-    Crea [Materia]/YYYY-MM-DD_[N][COD].md con frontmatter + texto crudo.
+    Crea [Materia]/YYYY-MM-DD_[N][COD].md con el frontmatter procesado + texto crudo.
     """
-    anterior_link = f'"[[{anterior}]]"' if anterior else '""'
-    fecha_legible = datetime.strptime(fecha, "%Y-%m-%d").strftime("%Y-%m-%d")
-
-    frontmatter = f"""---
-Campus: {campus}
-Modalidad:
-  - {modalidad}
-Clase anterior: {anterior_link}
-Siguiente clase: ""
-estado: cruda
-tags: []
-Aclaración extra: 
----
-
-"""
     ruta = carpeta_materia / f"{nombre_base}.md"
-    ruta.write_text(frontmatter + texto, encoding="utf-8")
+    ruta.write_text(frontmatter + "\n\n" + texto, encoding="utf-8")
     print(f"  Nota de clase creada: {ruta.relative_to(carpeta_materia.parent)}")
     return ruta
 
@@ -204,12 +268,12 @@ Aclaración extra:
 # ---------------------------------------------------------------------------
 
 def procesar(config: dict):
-    videos_dir = Path(config["videos_dir"])
-    vault_dir = Path(config["vault_dir"])
+    videos_dir  = Path(config["videos_dir"])
+    vault_dir   = Path(config["vault_dir"])
     whisperx_exe = Path(config["whisperx_exe"])
-    model = config["whisperx_model"]
+    model       = config["whisperx_model"]
     extensiones = config["video_extensions"]
-    materias = config["materias"]
+    materias    = config["materias"]
 
     codigos_validos = set(materias.keys())
 
@@ -233,10 +297,10 @@ def procesar(config: dict):
     print("\n" + "=" * 60)
 
     for p in pendientes:
-        video = p["video"]
-        fecha = p["fecha"]
-        num_clase = p["num_clase"]
-        codigo = p["codigo"]
+        video       = p["video"]
+        fecha       = p["fecha"]
+        num_clase   = p["num_clase"]
+        codigo      = p["codigo"]
         nombre_base = p["nombre_base"]
         carpeta_materia = vault_dir / materias[codigo]
         carpeta_transcripciones = carpeta_materia / "Transcripciones"
@@ -265,18 +329,23 @@ def procesar(config: dict):
         else:
             print(f"  No se encontró clase anterior (es la primera de {codigo})")
 
-        # 6. Crear nota de clase con frontmatter
+        # 6. Leer frontmatter del template de Obsidian para esta materia
+        fm_raw = leer_template_frontmatter(vault_dir, codigo)
+        if fm_raw:
+            frontmatter = aplicar_valores_al_frontmatter(fm_raw, anterior)
+        else:
+            print(f"  Usando frontmatter genérico para {codigo}")
+            frontmatter = frontmatter_generico(anterior)
+
+        # 7. Crear nota de clase con frontmatter del template
         nota_nueva = crear_nota_clase(
             carpeta_materia=carpeta_materia,
             nombre_base=nombre_base,
-            fecha=fecha,
-            num_clase=num_clase,
-            codigo=codigo,
+            frontmatter=frontmatter,
             texto=texto,
-            anterior=anterior,
         )
 
-        # 7. Actualizar "Siguiente clase" en la nota anterior
+        # 8. Actualizar "Siguiente clase" en la nota anterior
         if anterior:
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
