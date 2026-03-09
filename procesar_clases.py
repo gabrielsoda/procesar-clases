@@ -41,7 +41,6 @@ def cargar_config() -> dict:
     with CONFIG_PATH.open(encoding="utf-8") as f:
         return json.load(f)
 
-
 # Lectura y procesamiento de templates de Obsidian
 
 def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
@@ -125,10 +124,9 @@ tags: []
 Aclaración extra: 
 ---"""
 
-
 # Detección regex de videos pendientes 
 VIDEO_PATRON = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,3})\.(mkv|mp4)$",
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,3})\.\w+$",
     re.IGNORECASE,
 )
 
@@ -146,7 +144,7 @@ def detectar_videos_pendientes(videos_dir: Path, codigos_validos: set, extension
             m = VIDEO_PATRON.match(video.name) # se valida el nombre con regex
             if not m:
                 continue                    # si no cumple el patron se ignora
-            fecha, num_clase, codigo, _ = m.groups() #si sí cumple extrae las partes del nombre
+            fecha, num_clase, codigo = m.groups() #si sí cumple extrae las partes del nombre
             codigo = codigo.upper()         # por las dudas se pasa a mayusculas
             if codigo not in codigos_validos:
                 continue                    # si el codigo no esta en config se descarta
@@ -166,7 +164,6 @@ def detectar_videos_pendientes(videos_dir: Path, codigos_validos: set, extension
 
 
 # transcripción con WhisperX
-
 def transcribir(video_path: Path, whisperx_exe: Path, model: str) -> Path | None:
     """
     Ejecuta WhisperX directamente sobre el video.
@@ -193,7 +190,6 @@ def transcribir(video_path: Path, whisperx_exe: Path, model: str) -> Path | None
 
 
 # Manejo de notas en el vault
-
 def leer_txt(txt_path: Path) -> str:
     return txt_path.read_text(encoding="utf-8")
 
