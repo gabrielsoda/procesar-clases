@@ -6,25 +6,58 @@ Script personal para automatizar el ingreso de clases grabadas al vault de Obsid
 
 ```
 OBS graba → YYYY-MM-DD HH-MM-SS.mkv
-    ↓ (renombrado manual)
-YYYY-MM-DD_[N][COD].mkv         (ej: 2026-03-10_3AA2.mkv)
+    ↓ (renombrado manual, SIN número)
+YYYY-MM-DD_COD.mkv              (ej: 2026-03-10_AA2.mkv)
     ↓ (script: pc)
+Preview: muestra qué va a hacer + pide confirmación
+    ↓
+Calcula número de clase leyendo notas existentes en el vault
+    ↓
+Renombra video: 2026-03-10_AA2.mkv → 2026-03-10_3AA2.mkv (clase #3)
+    ↓
 WhisperX → .txt en C:\Users\Gabi\Videos
     ↓
-[Materia]/Transcripciones/YYYY-MM-DD_[N][COD]_t.md   (texto crudo, sin frontmatter)
-[Materia]/YYYY-MM-DD_[N][COD].md                      (frontmatter + texto, estado: cruda)
+[Materia]/Transcripciones/YYYY-MM-DD_NCOD_t.md   (texto crudo, sin frontmatter)
+[Materia]/YYYY-MM-DD_NCOD.md                      (frontmatter + texto, estado: cruda)
 ```
 
 Los links `Clase anterior` / `Siguiente clase` se actualizan automáticamente entre notas.
 
+### Grabaciones cortadas (partes)
+
+Si OBS se corta y quedan dos archivos de la misma clase:
+
+```
+2026-03-10_AA2.mkv       → primera parte (se procesa normal)
+2026-03-10_AA2_p2.mkv    → segunda parte (se transcribe y appendea a la nota principal)
+```
+
 ## Uso
 
 ```powershell
-pc
+pc          # muestra preview y pide confirmación
+pc -y       # ejecuta sin pedir confirmación
 ```
 
-El alias `pc` (configurado en el perfil de powershell) ejecuta `uv run procesar_clases.py` desde cualquier directorio.
+El alias `pc` (configurado en el perfil de PowerShell) ejecuta `uv run procesar_clases.py` desde cualquier directorio.
 El script detecta todos los videos en `C:\Users\Gabi\Videos` que no tienen `.txt` asociado y los procesa en batch.
+
+### Preview interactivo
+
+Antes de ejecutar, el script muestra exactamente qué va a hacer:
+
+```
+Videos pendientes encontrados: 3
+
+  PRINCIPALES:
+  1. 2026-03-10_AA2.mkv       →  🧠 Aprendizaje Automático 2/2026-03-10_3AA2.md  (clase #3)
+  2. 2026-03-10_OTR.mp4       →  Otros/2026-03-10_1OTR.md  (clase #1)
+
+  PARTES:
+  3. 2026-03-10_AA2_p2.mkv    →  appendea a 🧠 Aprendizaje Automático 2/2026-03-10_3AA2.md
+
+  ¿Continuar? [s/N]:
+```
 
 ## Configuración (`config.json`)
 
@@ -34,7 +67,7 @@ El script detecta todos los videos en `C:\Users\Gabi\Videos` que no tienen `.txt
 | `vault_dir` | Ruta al vault de Obsidian |
 | `whisperx_exe` | Ejecutable de WhisperX dentro del venv |
 | `whisperx_model` | Modelo a usar (por defecto: `large-v3`) |
-| `video_extensions` | Extensiones soportadas (`mkv`, `mp4`) |
+| `video_extensions` | Extensiones soportadas (`mkv`, `mp4`, `m4a`) |
 | `materias` | Mapeo código → nombre de carpeta en el vault |
 
 Para agregar o cambiar materias, editá el campo `materias` en `config.json`.
@@ -42,12 +75,19 @@ Para agregar o cambiar materias, editá el campo `materias` en `config.json`.
 ## Convención de nombres de video
 
 ```
-YYYY-MM-DD_[N][COD].(mkv|mp4)
+YYYY-MM-DD_CÓDIGO.(mkv|mp4|m4a)
 
-Ejemplos:
-  2026-03-10_3AA2.mkv    → clase 3 de Aprendizaje Automático 2
-  2026-03-12_2MYS.mkv    → clase 2 de Modelado y Simulación
-  2026-03-11_10GP.mkv    → clase 10 de Gestión de Proyectos
+El usuario renombra SIN número. El script calcula el número
+automáticamente leyendo las notas existentes en el vault.
+
+Ejemplos de renombrado manual:
+  2026-03-10_AA2.mkv       → script renombra a 2026-03-10_3AA2.mkv (clase #3)
+  2026-03-12_MYS.mkv       → script renombra a 2026-03-12_2MYS.mkv (clase #2)
+  2026-03-11_GDP.mp4       → script renombra a 2026-03-11_10GDP.mp4 (clase #10)
+  2026-03-03_OTR.mkv       → script renombra a 2026-03-03_1OTR.mkv (clase #1)
+
+Para grabaciones cortadas:
+  2026-03-10_AA2_p2.mkv    → script renombra a 2026-03-10_3AA2_p2.mkv
 ```
 
 ## Estados de una clase (campo `estado` en frontmatter)
@@ -71,8 +111,8 @@ El campo `estado` es la fuente de verdad para el tracking. Se visualiza en Obsid
 ```
 [Materia]/
 ├── Transcripciones/
-│   └── YYYY-MM-DD_[N][COD]_t.md   ← texto crudo de Whisper
-├── YYYY-MM-DD_[N][COD].md          ← nota con frontmatter (estado: cruda)
+│   └── YYYY-MM-DD_NCOD_t.md       ← texto crudo de Whisper
+├── YYYY-MM-DD_NCOD.md              ← nota con frontmatter (estado: cruda)
 ├── Kanban [COD].md                 ← tablero de tareas sueltas de la materia
 └── Clases [COD].base               ← vista de clases agrupadas por estado
 ```
