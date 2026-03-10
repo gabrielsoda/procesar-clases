@@ -13,14 +13,13 @@ Convención de nombres de video (renombrado manual por el usuario):
 El número de clase (N) se calcula automáticamente leyendo las notas
 existentes en la carpeta de la materia dentro del vault.
 
-Flujo por cada video pendiente:
+Flujo:
   1. Preview: mostrar qué se va a hacer y pedir confirmación (salvo -y)
-  2. Calcular número de clase leyendo vault
-  3. Renombrar video: YYYY-MM-DD_COD → YYYY-MM-DD_NCOD
-  4. Ejecutar WhisperX → genera .txt en la carpeta de videos
-  5. Crear [Materia]/Transcripciones/YYYY-MM-DD_NCOD_t.md  (texto crudo)
-  6. Crear [Materia]/YYYY-MM-DD_NCOD.md  (frontmatter del template + texto)
-  7. Detectar clase anterior y actualizar links bidireccionales
+  2. Calcular números de clase leyendo vault
+  3. Renombrar todos los videos: YYYY-MM-DD_COD → YYYY-MM-DD_NCOD
+  4. Ejecutar WhisperX UNA SOLA VEZ con todos los videos (carga el modelo 1 vez)
+  5. Para cada principal: crear notas en vault + actualizar links
+  6. Para cada parte: appendear texto a la nota principal existente
 
 Para partes (_p2, _p3…):
   - Transcribe y appendea el texto a la nota principal existente
@@ -321,32 +320,48 @@ def pedir_confirmacion() -> bool:
 # ─── Transcripción con WhisperX ──────────────────────────────────────────────
 
 
-def transcribir(video_path: Path, whisperx_exe: Path, model: str) -> Path | None:
+def transcribir_batch(
+    videos: list[Path], whisperx_exe: Path, model: str
+) -> dict[Path, Path]:
     """
-    Ejecuta WhisperX directamente sobre el video.
-    Devuelve la ruta al .txt generado (misma carpeta que el video).
+    Ejecuta WhisperX una sola vez con todos los videos como argumentos.
+    El modelo se carga una sola vez en GPU y procesa todos en secuencia.
+    Devuelve un dict {video_path: txt_path} solo para los que generaron .txt.
     """
-    print(f"\n  Transcribiendo: {video_path.name} ...")
+    if not videos:
+        return {}
+
+    print(f"\n  Transcribiendo {len(videos)} archivo(s) con WhisperX ...")
+    for v in videos:
+        print(f"    - {v.name}")
+
     cmd = [
         str(whisperx_exe),
-        str(video_path),
+        *[str(v) for v in videos],
         "--model",
         model,
         "--output_format",
         "txt",
         "--output_dir",
-        str(video_path.parent),
+        str(videos[0].parent),
     ]
     result = subprocess.run(cmd, capture_output=False, text=True)
     if result.returncode != 0:
-        print(f"  [ERROR] WhisperX falló para {video_path.name}")
-        return None
-    txt_path = video_path.with_suffix(".txt")
-    if not txt_path.exists():
-        print(f"  [ERROR] No se generó el .txt esperado: {txt_path}")
-        return None
-    print(f"  Transcripción generada: {txt_path.name}")
-    return txt_path
+        print(
+            "  [AVISO] WhisperX terminó con errores. Se procesarán los .txt que se hayan generado."
+        )
+
+    # Verificar qué .txt se generaron
+    resultados = {}
+    for video in videos:
+        txt_path = video.with_suffix(".txt")
+        if txt_path.exists():
+            print(f"  Transcripción generada: {txt_path.name}")
+            resultados[video] = txt_path
+        else:
+            print(f"  [ERROR] No se generó .txt para: {video.name}")
+
+    return resultados
 
 
 # ─── Manejo de notas en el vault ─────────────────────────────────────────────
@@ -524,37 +539,84 @@ def procesar(config: dict, auto_yes: bool = False):
             print("Abortado por el usuario.")
             return
 
-    # ── Pasada 1: procesar principales ──
+    # ── Fase 1: Renombrar todos los videos ──
+    print("\n── Renombrando videos ──")
+
+    # Renombrar principales y guardar la ruta nueva en cada dict
+    for p in principales:
+        n = numeros_calculados[f"{p['fecha']}_{p['codigo']}"]
+        nombre_base = f"{p['fecha']}_{n}{p['codigo']}"
+        p["video"] = renombrar_video(p["video"], nombre_base)
+        p["nombre_base"] = nombre_base
+        p["n"] = n
+
+    # Renombrar partes: necesitan saber el N del principal del mismo día/código
+    for p in partes:
+        fecha = p["fecha"]
+        codigo = p["codigo"]
+        carpeta_materia = vault_dir / materias[codigo]
+
+        # Buscar la nota principal (puede existir de antes o haberse creado en una corrida previa)
+        nota_principal = buscar_nota_principal_para_parte(
+            carpeta_materia, fecha, codigo
+        )
+        if nota_principal is None:
+            clave = f"{fecha}_{codigo}"
+            if clave in numeros_calculados:
+                n = numeros_calculados[clave]
+                nombre_base_principal = f"{fecha}_{n}{codigo}"
+            else:
+                print(
+                    f"  [SKIP] No se encontró nota principal para {p['video'].name}. "
+                    f"Procesá primero el video principal del {fecha}."
+                )
+                p["skip"] = True
+                continue
+        else:
+            nombre_base_principal = nota_principal.stem
+
+        p["nombre_base_principal"] = nombre_base_principal
+        nombre_parte_nuevo = f"{nombre_base_principal}_p{p['num_parte']}"
+        p["video"] = renombrar_video(p["video"], nombre_parte_nuevo)
+        p["skip"] = False
+
+    # ── Fase 2: Transcribir todo en una sola llamada a WhisperX ──
+    todos_los_videos = [p["video"] for p in principales]
+    todos_los_videos += [p["video"] for p in partes if not p.get("skip")]
+
+    if todos_los_videos:
+        transcripciones = transcribir_batch(todos_los_videos, whisperx_exe, model)
+    else:
+        transcripciones = {}
+
+    # ── Fase 3: Crear notas para principales ──
+    print("\n── Generando notas en Obsidian ──")
+
     for p in principales:
         video = p["video"]
         fecha = p["fecha"]
         codigo = p["codigo"]
-        n = numeros_calculados[f"{fecha}_{codigo}"]
-        nombre_base = f"{fecha}_{n}{codigo}"
+        n = p["n"]
+        nombre_base = p["nombre_base"]
         carpeta_materia = vault_dir / materias[codigo]
         carpeta_transcripciones = carpeta_materia / "Transcripciones"
 
-        print(f"\n[{codigo}] Procesando: {video.name} → clase #{n}")
-
-        # 1. Renombrar video
-        video = renombrar_video(video, nombre_base)
-
-        # 2. Transcribir
-        txt_path = transcribir(video, whisperx_exe, model)
+        txt_path = transcripciones.get(video)
         if txt_path is None:
-            print(f"  [SKIP] Se omite {video.name} por error en transcripción.")
+            print(f"\n  [SKIP] No hay transcripción para {video.name}")
             continue
 
-        # 3. Leer texto
+        print(f"\n[{codigo}] {nombre_base} (clase #{n})")
+
         texto = leer_txt(txt_path)
 
-        # 4. Crear carpeta Transcripciones si no existe
+        # Crear carpeta Transcripciones si no existe
         carpeta_transcripciones.mkdir(parents=True, exist_ok=True)
 
-        # 5. Crear nota _t (texto crudo)
+        # Crear nota _t (texto crudo)
         crear_nota_transcripcion(carpeta_transcripciones, nombre_base, texto)
 
-        # 6. Buscar clase anterior (no aplica para OTR, son videos sueltos)
+        # Buscar clase anterior (no aplica para OTR, son videos sueltos)
         anterior = None
         if codigo != "OTR":
             anterior = clase_anterior(carpeta_materia, fecha, n, codigo)
@@ -563,7 +625,7 @@ def procesar(config: dict, auto_yes: bool = False):
             else:
                 print(f"  No se encontró clase anterior (es la primera de {codigo})")
 
-        # 7. Leer frontmatter del template
+        # Leer frontmatter del template
         fm_raw = leer_template_frontmatter(vault_dir, codigo)
         if fm_raw:
             frontmatter = aplicar_valores_al_frontmatter(fm_raw, anterior, fecha)
@@ -571,7 +633,7 @@ def procesar(config: dict, auto_yes: bool = False):
             print(f"  Usando frontmatter genérico para {codigo}")
             frontmatter = frontmatter_generico(anterior)
 
-        # 8. Crear nota de clase
+        # Crear nota de clase
         crear_nota_clase(
             carpeta_materia=carpeta_materia,
             nombre_base=nombre_base,
@@ -579,62 +641,45 @@ def procesar(config: dict, auto_yes: bool = False):
             texto=texto,
         )
 
-        # 9. Actualizar "Siguiente clase" en la nota anterior (no aplica para OTR)
+        # Actualizar "Siguiente clase" en la nota anterior (no aplica para OTR)
         if anterior and codigo != "OTR":
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
 
-    # ── Pasada 2: procesar partes ──
+    # ── Fase 4: Appendear partes a notas principales ──
     for p in partes:
+        if p.get("skip"):
+            continue
+
         video = p["video"]
         fecha = p["fecha"]
         codigo = p["codigo"]
         num_parte = p["num_parte"]
+        nombre_base_principal = p["nombre_base_principal"]
         carpeta_materia = vault_dir / materias[codigo]
         carpeta_transcripciones = carpeta_materia / "Transcripciones"
 
-        print(f"\n[{codigo}] Procesando parte {num_parte}: {video.name}")
+        txt_path = transcripciones.get(video)
+        if txt_path is None:
+            print(f"\n  [SKIP] No hay transcripción para {video.name}")
+            continue
 
-        # Buscar la nota principal a la que appendear
-        nota_principal = buscar_nota_principal_para_parte(
-            carpeta_materia, fecha, codigo
-        )
-
-        if nota_principal is None:
-            # Quizá el principal se acaba de crear en esta corrida,
-            # buscar con la clave de numeros_calculados
-            clave = f"{fecha}_{codigo}"
-            if clave in numeros_calculados:
-                n = numeros_calculados[clave]
-                nombre_principal = f"{fecha}_{n}{codigo}"
-                nota_principal = carpeta_materia / f"{nombre_principal}.md"
-
-        if nota_principal is None or not nota_principal.exists():
+        nota_principal = carpeta_materia / f"{nombre_base_principal}.md"
+        if not nota_principal.exists():
             print(
-                f"  [SKIP] No se encontró nota principal para {video.name}. "
-                f"Procesá primero el video principal del {fecha}."
+                f"\n  [SKIP] No se encontró nota principal {nombre_base_principal}.md "
+                f"para appendear parte {num_parte}."
             )
             continue
 
-        nombre_base_principal = nota_principal.stem  # ej: 2026-03-10_2MYS
+        print(f"\n[{codigo}] Parte {num_parte} → {nombre_base_principal}")
 
-        # 1. Renombrar video de parte: COD_pN → NCOD_pN
-        nombre_parte_nuevo = f"{nombre_base_principal}_p{num_parte}"
-        video = renombrar_video(video, nombre_parte_nuevo)
-
-        # 2. Transcribir
-        txt_path = transcribir(video, whisperx_exe, model)
-        if txt_path is None:
-            print(f"  [SKIP] Se omite {video.name} por error en transcripción.")
-            continue
-
-        # 3. Leer texto
         texto = leer_txt(txt_path)
 
-        # 4. Appendear a la nota principal
+        # Appendear a la nota principal
         appendear_a_nota(nota_principal, texto, num_parte)
 
-        # 5. Appendear a la transcripción cruda
+        # Appendear a la transcripción cruda
         appendear_a_transcripcion(
             carpeta_transcripciones, nombre_base_principal, texto, num_parte
         )
