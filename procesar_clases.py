@@ -119,7 +119,7 @@ def aplicar_valores_al_frontmatter(
     if fecha:
         resultado = re.sub(
             r"(fecha:\s*).*",
-            rf"\1{fecha}",
+            rf"\g<1>{fecha}",
             resultado,
         )
 
