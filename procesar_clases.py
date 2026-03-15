@@ -1,6 +1,6 @@
 """
 procesar_clases.py
-==================
+
 Detecta videos de clases grabados con OBS en el directorio configurado,
 transcribe los que no tienen .txt con WhisperX, y genera los archivos .md
 correspondientes en el vault de Obsidian.
@@ -43,7 +43,7 @@ import sys
 from pathlib import Path
 
 
-# ─── Configuración ───────────────────────────────────────────────────────────
+# configuracion
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
@@ -56,7 +56,8 @@ def cargar_config() -> dict:
         return json.load(f)
 
 
-# ─── Lectura y procesamiento de templates de Obsidian ────────────────────────
+# Lectura y procesamiento de templates de Obsidian 
+# (más adelante evaluar si integrar con el plugin "templater" y desligarse de esta responsabilidad)
 
 
 def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
@@ -82,9 +83,7 @@ def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
     return m.group(1)
 
 
-def aplicar_valores_al_frontmatter(
-    frontmatter: str, anterior: str | None, fecha: str = ""
-) -> str:
+def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None, fecha: str = "") -> str:
     """
     Toma el bloque YAML del template y reemplaza los campos dinámicos:
     - 'Clase anterior' → link a la clase anterior real (o vacío si es la primera)
@@ -115,7 +114,7 @@ def aplicar_valores_al_frontmatter(
         r"\1cruda",
         resultado,
     )
-    # Reemplaza fecha: si existe en el template (usado en OTR y eventualmente otros)
+    # Reemplaza fecha: si existe en el template (ahora solo usado en OTR y eventualmente otros)
     if fecha:
         resultado = re.sub(
             r"(fecha:\s*).*",
@@ -143,15 +142,15 @@ Aclaración extra:
 ---"""
 
 
-# ─── Detección de videos pendientes ─────────────────────────────────────────
+# Detección de videos pendientes a procesar
 
-# Principal: YYYY-MM-DD_COD.(ext)   — sin número, el script lo calcula
+# Principal: YYYY-MM-DD_COD.(ext)   — sin número, el script lo calcula en base a las notas existentes
 VIDEO_PRINCIPAL = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_([A-Z]{2,4})\.\w+$",
     re.IGNORECASE,
 )
 
-# Parte: YYYY-MM-DD_COD_pN.(ext)   — continuación de una grabación cortada
+# Parte: YYYY-MM-DD_COD_pN.(ext)   — segunda parte o continuación de una grabación cortada
 VIDEO_PARTE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_([A-Z]{2,4})_p(\d+)\.\w+$",
     re.IGNORECASE,
@@ -222,7 +221,7 @@ def detectar_videos_pendientes(
     return principales, partes
 
 
-# ─── Cálculo automático del número de clase ──────────────────────────────────
+# Cálculo del número de clase
 
 
 def calcular_numero_clase(carpeta_materia: Path, codigo: str) -> int:
@@ -259,7 +258,7 @@ def buscar_nota_principal_para_parte(
     return None
 
 
-# ─── Preview interactivo ─────────────────────────────────────────────────────
+# Preview interactivo
 
 
 def mostrar_preview(
@@ -310,28 +309,32 @@ def mostrar_preview(
 def pedir_confirmacion() -> bool:
     """Pide confirmación al usuario. Devuelve True si confirma."""
     try:
-        resp = input("  ¿Continuar? [s/N]: ").strip().lower()
+        resp = input("  Así está bien? \n  Continuamos con la ejecución? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
     return resp in ("s", "si", "sí", "y", "yes")
 
 
-# ─── Transcripción con WhisperX ──────────────────────────────────────────────
+# Transcripción con WhisperX
 
 
 def transcribir_batch(
-    videos: list[Path], whisperx_exe: Path, model: str
+    videos: list[Path], whisperx_exe: Path, model: str, lang: str | None = None
 ) -> dict[Path, Path]:
     """
-    Ejecuta WhisperX una sola vez con todos los videos como argumentos.
+    Ejecuta WhisperX UNA sola vez con todos los videos como argumentos.
     El modelo se carga una sola vez en GPU y procesa todos en secuencia.
     Devuelve un dict {video_path: txt_path} solo para los que generaron .txt.
+    Si lang es None, WhisperX autodetecta el idioma.
     """
     if not videos:
         return {}
 
-    print(f"\n  Transcribiendo {len(videos)} archivo(s) con WhisperX ...")
+    idioma = lang if lang else "autodetectar"
+    print(
+        f"\n  Transcribiendo {len(videos)} archivo(s) con WhisperX (idioma: {idioma}) ..."
+    )
     for v in videos:
         print(f"    - {v.name}")
 
@@ -345,6 +348,8 @@ def transcribir_batch(
         "--output_dir",
         str(videos[0].parent),
     ]
+    if lang:
+        cmd.extend(["--language", lang])
     result = subprocess.run(cmd, capture_output=False, text=True)
     if result.returncode != 0:
         print(
@@ -364,7 +369,7 @@ def transcribir_batch(
     return resultados
 
 
-# ─── Manejo de notas en el vault ─────────────────────────────────────────────
+# Manejo de notas en el vault
 
 
 def leer_txt(txt_path: Path) -> str:
@@ -471,7 +476,7 @@ def appendear_a_transcripcion(
         print(f"  [AVISO] No se encontró {ruta.name} para appendear parte {num_parte}")
 
 
-# ─── Renombrado de videos ───────────────────────────────────────────────────
+# Renombrado de videos
 
 
 def renombrar_video(video_path: Path, nombre_nuevo: str) -> Path:
@@ -485,10 +490,10 @@ def renombrar_video(video_path: Path, nombre_nuevo: str) -> Path:
     return nueva_ruta
 
 
-# ─── Flujo principal ─────────────────────────────────────────────────────────
+# Flujo principal
 
 
-def procesar(config: dict, auto_yes: bool = False):
+def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     videos_dir = Path(config["videos_dir"])
     vault_dir = Path(config["vault_dir"])
     whisperx_exe = Path(config["whisperx_exe"])
@@ -533,13 +538,16 @@ def procesar(config: dict, auto_yes: bool = False):
 
     # ── Preview ──
     mostrar_preview(principales, partes, numeros_calculados, materias)
+    idioma = lang if lang else "autodetectar"
+    print(f"  Idioma de transcripción: {idioma}")
+    print()
 
     if not auto_yes:
         if not pedir_confirmacion():
             print("Abortado por el usuario.")
             return
 
-    # ── Fase 1: Renombrar todos los videos ──
+    # PASO 1: Renombrar videos
     print("\n── Renombrando videos ──")
 
     # Renombrar principales y guardar la ruta nueva en cada dict
@@ -580,16 +588,16 @@ def procesar(config: dict, auto_yes: bool = False):
         p["video"] = renombrar_video(p["video"], nombre_parte_nuevo)
         p["skip"] = False
 
-    # ── Fase 2: Transcribir todo en una sola llamada a WhisperX ──
+    # PASO 2: Transcribir todo en una sola llamada a WhisperX
     todos_los_videos = [p["video"] for p in principales]
     todos_los_videos += [p["video"] for p in partes if not p.get("skip")]
 
     if todos_los_videos:
-        transcripciones = transcribir_batch(todos_los_videos, whisperx_exe, model)
+        transcripciones = transcribir_batch(todos_los_videos, whisperx_exe, model, lang)
     else:
         transcripciones = {}
 
-    # ── Fase 3: Crear notas para principales ──
+    # PASO 3: Crear notas principales
     print("\n── Generando notas en Obsidian ──")
 
     for p in principales:
@@ -646,7 +654,7 @@ def procesar(config: dict, auto_yes: bool = False):
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
 
-    # ── Fase 4: Appendear partes a notas principales ──
+    # PASO 4: Appendear partes a notas principales
     for p in partes:
         if p.get("skip"):
             continue
@@ -688,7 +696,7 @@ def procesar(config: dict, auto_yes: bool = False):
     print("Procesamiento completado.")
 
 
-# ─── Comienzo ────────────────────────────────────────────────────────────────
+# main
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -700,7 +708,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Ejecutar sin pedir confirmación (skip preview interactivo)",
     )
+    parser.add_argument(
+        "-l",
+        "--lang",
+        default=None,
+        help="Forzar idioma de transcripción (ej: es, en). Sin este flag, WhisperX autodetecta.",
+    )
     args = parser.parse_args()
 
     config = cargar_config()
-    procesar(config, auto_yes=args.yes)
+    procesar(config, auto_yes=args.yes, lang=args.lang)
