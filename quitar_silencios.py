@@ -248,13 +248,11 @@ def recortar_silencios(
 
     print(f"    Recortando silencios...")
     t0 = time.time()
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd)
     tiempo = time.time() - t0
 
     if result.returncode != 0:
         print(f"    [ERROR] auto-editor falló ({result.returncode}):")
-        stderr = result.stderr or result.stdout
-        print(stderr[-800:] if stderr else "(sin output)")
         return False
     
     if not output_path.exists():
