@@ -498,7 +498,7 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     vault_dir = Path(config["vault_dir"])
     whisperx_exe = Path(config["whisperx_exe"])
     model = config["whisperx_model"]
-    extensiones = config["video_extensions"]
+    extensiones = config["file_extensions"]
     materias = config["materias"]
 
     codigos_validos = set(materias.keys())

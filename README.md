@@ -67,7 +67,7 @@ Videos pendientes encontrados: 3
 | `vault_dir` | Ruta al vault de Obsidian |
 | `whisperx_exe` | Ejecutable de WhisperX dentro del venv |
 | `whisperx_model` | Modelo a usar (por defecto: `large-v3`) |
-| `video_extensions` | Extensiones soportadas (`mkv`, `mp4`, `m4a`) |
+| `file_extensions` | Extensiones soportadas ("mkv", "mp4", "m4a", "mp3", "ogg", "wav", "webm") |
 | `materias` | Mapeo código → nombre de carpeta en el vault |
 
 Para agregar o cambiar materias, editá el campo `materias` en `config.json`.
