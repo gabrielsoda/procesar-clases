@@ -1,16 +1,17 @@
 """
-Toma los videos procesados (ya renombrados con número de clase y con .txt de la transcripción) 
-y les quita los silencios con auto-editor
+Toma los videos procesados (ya renombrados con número de clase) y les quita los silencios con auto-editor
 
 Detecta videos pendientes en videos_dir que:
-    - Matcheen el patron YYYY-MM-DD_NCOD.ext  o  YYYY-MM-DD_NCOD_pN.ext
+    - Matcheen el patron YYYY-MM-DD_NCOD.ext o YYYY-MM-DD_NCOD_pN.ext
     - No tengan ya un .mp4 en processed_videos_path
-
 Para archivos de audio (sin video), se genera automáticamente un video con
 fondo negro a calidad mínima antes de procesar.
+Cuando hay partes (_p2, _p3...) se agrupan, procesan individualmente y concatenan en un único .mp4 final.
 
-Flujo por video:
-    1. Recortar silencios con auto-editor → processed_videos_path/YYYY-MM-DD_NCOD.mp4
+Flujo por grupo:
+    1. Recortar silencios de cada archivo con auto-editor
+    2. Si es multipart, concatenar las partes en un solo .mp4
+    → processed_videos_path/YYYY-MM-DD_NCOD.mp4
 Uso:
   uv run quitar_silencios.py          # preview interactivo + confirmacion
   uv run quitar_silencios.py -y       # ejecuta el recorte de todos sin pedir confirmacion
@@ -59,7 +60,30 @@ def tiene_video(file_path: Path) -> bool:
     result = subprocess.run(cmd, capture_output=True, text=True)
     return "video" in result.stdout
 
-    
+# Obtener codecs, se utiliza para no re-encodear si no es neceario
+def obtener_codecs(file_path: Path) -> tuple[str, str]:
+    """Devuelve (codec_video, codec_audio) del archivo"""
+    # codec de video
+    cmd_v = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "csv=p=0",
+        str(file_path),
+    ]
+    # codec de audio
+    cmd_a = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "csv=p=0",
+        str(file_path),
+    ]
+    video = subprocess.run(cmd_v, capture_output=True, text=True).stdout.strip()
+    audio = subprocess.run(cmd_a, capture_output=True, text=True).stdout.strip()
+    return (video, audio)
+
+
 # Detección de archivos pendientes
 def detectar_pendientes(
         videos_dir: Path,
@@ -89,9 +113,8 @@ def detectar_pendientes(
             codigo = codigo.upper()
             if codigo not in codigos_validos:
                 continue
-            #if not archivo.with_suffix(".txt").exists():
-            #    continue
-            mp4_out = processed_dir / f"{archivo.stem}.mp4"
+            clave = f"{fecha}_{num_str}{codigo}"
+            mp4_out = processed_dir / f"{clave}.mp4"
             if mp4_out.exists():
                 continue
             pendientes.append({
@@ -104,6 +127,36 @@ def detectar_pendientes(
             })
     pendientes.sort(key=lambda x: (x["fecha"], x["codigo"], x["num_parte"] or 0))
     return pendientes
+
+# agrupación de partes
+def agrupar_partes_pendientes(pendientes:list[dict]) -> list[dict]:
+    """
+    Agrupa archivos que comparten YYYY-MM-DD_NCOD en un solo grupo siendo
+    el principal sin _pN y sus partes con _pN. Devuelve lista de grupos 
+    ordenados por fecha y código
+    """ 
+    grupos_dict = {}
+    for p in pendientes:
+        clave = f"{p['fecha']}_{p['num']}{p['codigo']}"
+        if clave not in grupos_dict:
+            grupos_dict[clave] = {
+                "clave": clave,
+                "fecha": p["fecha"],
+                "num": p["num"],
+                "codigo":p["codigo"],
+                "archivos": [],
+            }
+        grupos_dict[clave]["archivos"].append({
+            "archivo": p["archivo"],
+            "num_parte": p["num_parte"],
+            "es_audio": p["es_audio"],
+        })
+    grupos = list(grupos_dict.values())
+    for g in grupos:
+        g["archivos"].sort(key=lambda a: a["num_parte"] or 0)
+        g["es_multipart"] = len(g["archivos"]) > 1
+    grupos.sort(key=lambda g: (g["fecha"], g["codigo"]))
+    return grupos
 
 
 # Convertir de audio a video
@@ -145,30 +198,36 @@ def convertir_audio_a_video(audio_path: Path, output_path: Path) -> bool:
 # Preview interactivo
 
 def mostrar_preview_y_seleccionar(
-        pendientes:list[dict],
+        grupos:list[dict],
         config: dict,
         auto_yes: bool,
         ) -> list[dict] | None:
     """
     Muestra los archivos pendientes, permite al usuario elegir cuales
     saltar recorte de silencios, y pide confirmación.
-    Devuelve una lista con el campo 'trim' asignado, o None si no se elige recortar.
+    Devuelve una lista de grupos con el campo 'trim' asignado, o None si no se eligió recortar.
     """
     materias = config["materias"]
 
-    print(f"\nCantidad de archivos pendientes a procesar: {len(pendientes)}\n")
+    print(f"\nCantidad de grupos de archivos pendientes a procesar: {len(grupos)}\n")
 
-    for i, p in enumerate(pendientes, 1):
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        tipo = "AUDIO" if p["es_audio"] else "VIDEO"
-        print(f"  {i}. {p['archivo'].name}")
+    for i, g in enumerate(grupos, 1):
+        nombre_materia = materias.get(g["codigo"], g["codigo"])
+        principal = g["archivos"][0]["archivo"].name
+        if g["es_multipart"]:
+            partes_extra = ", ".join(a["archivo"].name for a in g["archivos"][1:])
+            print(f"  {i}. {principal}  (+ {partes_extra})")
+        else:
+            print(f"  {i}. {principal}")
+        tiene_audio = any(a["es_audio"] for a in g["archivos"])
+        tipo = "AUDIO" if tiene_audio else "VIDEO"
         print(f"       Materia: {nombre_materia}  [{tipo}]")
         print()
 
     # selección de archivos a saltar
     if auto_yes:
-        for p in pendientes:
-            p["trim"] = True
+        for g in grupos:
+            g["trim"] = True
     else:
         print("    Saltar recorte de silencios en alguno?")
         try:
@@ -182,37 +241,43 @@ def mostrar_preview_y_seleccionar(
                 parte = parte.strip()
                 if parte.isdigit():
                     idx = int(parte)
-                    if 1 <= idx <= len(pendientes):
+                    if 1 <= idx <= len(grupos):
                         skip_indices.add(idx)
-        for i, p in enumerate(pendientes, 1):
-            p["trim"] = i not in skip_indices
+        for i, g in enumerate(grupos, 1):
+            g["trim"] = i not in skip_indices
 
 
     # Resumen de confirmación
     print()
     print("    Plan de ejecución:")
     print()
-    for i, p in enumerate(pendientes, 1):
-        nombre = p["archivo"].name
-        if p["es_audio"] and p["trim"]:
+    for i, g in enumerate(grupos, 1):
+        tiene_audio = any(a["es_audio"] for a in g["archivos"])
+        if g["es_multipart"]:
+            nombre = g["clave"] + "  (multipart)"
+        else:
+            nombre = g["archivos"][0]["archivo"].name
+        if tiene_audio and g["trim"]:
             accion = "fondo negro + recorte"
-        elif p["es_audio"] and not p["trim"]:
+        elif tiene_audio and not g["trim"]:
             accion = "fondo negro (sin recorte)"
-        elif not p["es_audio"] and p["trim"]:
+        elif not tiene_audio and g["trim"]:
             accion = "recorte"
         else:
             accion = "sin procesar (usa original)"
+        if g["es_multipart"]:
+            accion += " + concatenar"
         print(f"    {i}. {nombre:40s} -> {accion}")
     print()
     if not auto_yes:
         try:
-            resp = input("    Todo está correcto? \n    Continuamos con la ejecución? [y/N]: ").strip().lower()
+            resp = input("    Está todo correcto? \n    Continuamos con la ejecución? [y/N]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
         if resp not in ("s", "si", "y", "yes"):
             return None
-    return pendientes
+    return grupos
 
 # recorte de silencios con auto-editor
 
@@ -263,6 +328,63 @@ def recortar_silencios(
     return True    
 
 
+
+
+# Concatenación de partes
+def concatenar_partes(partes: list[Path], output: Path) -> bool:
+    """
+    Concatena múltiples archivos de video en uno solo.
+    Detecta automáticamente si los codecs son iguales para evitar re-encode.
+    Devuelve True si fue exitoso.
+    """
+    output.parent.mkdir(parents=True, exist_ok=True)
+    codecs = [obtener_codecs(p) for p in partes]
+    stream_copy = len(set(codecs)) == 1
+    if stream_copy:
+        print(f"    Mismos codecs, concatenando sin re-encode...")
+        lista_path = output.with_suffix(".txt")
+        contenido = "\n".join(f"file '{p}'" for p in partes)
+        lista_path.write_text(contenido, encoding="utf-8")
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(lista_path),
+            "-c", "copy",
+            str(output),
+        ]
+    else:
+        print(f"    Codecs distintos detectados, concatenando con re-encode...")
+        # concat filter
+        cmd = ["ffmpeg", "-y"]
+        for p in partes:
+            cmd += ["-i", str(p)]
+        n = len(partes)
+        filtro = "".join(f"[{i}:v][{i}:a]" for i in range(n))
+        filtro += f"concat=n={n}:v=1:a=1[v][a]"
+        cmd += [
+            "-filter_complex", filtro,
+            "-map", "[v]",
+            "-map", "[a]",
+            str(output),
+        ]
+    print(f"    Concatenando {len(partes)} partes...")
+    t0 = time.time()
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    tiempo = time.time() - t0
+    # limpiar archivo de lista temporal
+    if stream_copy:
+        lista_path.unlink(missing_ok=True)
+    if result.returncode != 0:
+        print(f"    [ERROR] Error al concatenar:")
+        print(result.stderr[-800:] if result.stderr else "(sin output)")
+        return False
+    tamanio = output.stat().st_size / (1024 * 1024)
+    print(f"    Concatenación completada en {tiempo:.1f}s — {tamanio:.1f} MB")
+    return True
+
+
+
 # flujo principal
 
 def procesar(config: dict, auto_yes: bool = False):
@@ -278,50 +400,104 @@ def procesar(config: dict, auto_yes: bool = False):
         videos_dir, processed_dir, codigos_validos, extensiones
     )
     if not pendientes:
-        print("No hay archivos pendientes de procesar.")
+        print("No hay archivos pendientes para procesar.")
         print(f"(Criterio: en {videos_dir}, sin .mp4 en {processed_dir})")
         return
-    pendientes = mostrar_preview_y_seleccionar(pendientes, config, auto_yes)
-    if pendientes is None:
+    grupos = agrupar_partes_pendientes(pendientes)
+    grupos = mostrar_preview_y_seleccionar(grupos, config, auto_yes)
+    if grupos is None:
         print("Abortado.")
         return
     print()
-    for p in pendientes:
-        archivo = p["archivo"]
-        stem = archivo.stem
-        mp4_path = processed_dir / f"{stem}.mp4"
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        print(f"-- {nombre_materia} — {stem} --")
-        # Caso1: video sin procesar (no trim, no audio)
-        if not p["es_audio"] and not p["trim"]:
-            print(f"  Sin procesar. Usar original: {archivo.name}")
-            print()
-            continue
-        # Caso2: audio sin recorte → solo fondo negro
-        if p["es_audio"] and not p["trim"]:
-            ok = convertir_audio_a_video(archivo, mp4_path)
-            if not ok:
-                print(f"  [SKIP] Error en la conversion.")
-            print()
-            continue
-        # Caso3: audio con recorte → fondo negro + auto-editor
-        if p["es_audio"] and p["trim"]:
-            temp_video = processed_dir / f"{stem}_temp.mp4"
-            ok = convertir_audio_a_video(archivo, temp_video)
-            if not ok:
-                print(f"  [SKIP] Error en la conversion.")
+    for g in grupos:
+        nombre_materia = materias.get(g["codigo"], g["codigo"])
+        mp4_final = processed_dir / f"{g['clave']}.mp4"
+        print(f"-- {nombre_materia} — {g['clave']} --")
+        # grupo de un solo archivo
+        if not g["es_multipart"]:
+            a = g["archivos"][0]
+            archivo = a["archivo"]
+            if not a["es_audio"] and not g["trim"]:
+                print(f"    Sin procesar. Usar original: {archivo.name}")
                 print()
                 continue
-            ok = recortar_silencios(temp_video, mp4_path, config)
-            temp_video.unlink(missing_ok=True)
+            if a["es_audio"] and not g["trim"]:
+                ok = convertir_audio_a_video(archivo, mp4_final)
+                if not ok:
+                    print(f"    [SKIP] Error en la conversión.")
+                print()
+                continue
+            if a["es_audio"] and g["trim"]:
+                temp_video = processed_dir / f"{g['clave']}_temp.mp4"
+                ok = convertir_audio_a_video(archivo, temp_video)
+                if not ok:
+                    print(f"    [SKIP] Error en la conversión.")
+                    print()
+                    continue
+                ok = recortar_silencios(temp_video, mp4_final, config)
+                temp_video.unlink(missing_ok=True)
+                if not ok:
+                    print(f"    [SKIP] Error en el recorte.")
+                print()
+                continue
+            ok = recortar_silencios(archivo, mp4_final, config)
             if not ok:
-                print(f"  [SKIP] Error en el recorte.")
+                print(f"    [SKIP] Error en el recorte.")
             print()
             continue
-        # Caso4: video con recorte → auto-editor directo
-        ok = recortar_silencios(archivo, mp4_path, config)
-        if not ok:
-            print(f"  [SKIP] Error en el recorte.")
+        # grupo multipart sin recorte → concatenar originales con re-encode
+        if not g["trim"]:
+            partes_preparadas = []
+            error = False
+            for a in g["archivos"]:
+                if a["es_audio"]:
+                    temp = processed_dir / f"{a['archivo'].stem}_temp.mp4"
+                    ok = convertir_audio_a_video(a["archivo"], temp)
+                    if not ok:
+                        print(f"    [SKIP] Error en la conversión de {a['archivo'].name}")
+                        error = True
+                        break
+                    partes_preparadas.append(temp)
+                else:
+                    partes_preparadas.append(a["archivo"])
+            if not error:
+                ok = concatenar_partes(partes_preparadas, mp4_final)
+                if not ok:
+                    print(f"    [SKIP] Error al concatenar.")
+            for temp in partes_preparadas:
+                if temp.parent == processed_dir:
+                    temp.unlink(missing_ok=True)
+            print()
+            continue
+        # grupo multipart con recorte → recortar cada parte + concatenar con copy
+        partes_recortadas = []
+        error = False
+        for a in g["archivos"]:
+            archivo = a["archivo"]
+            num_p = a["num_parte"] or 1
+            temp_recortado = processed_dir / f"{g['clave']}_trimmed_p{num_p}.mp4"
+            if a["es_audio"]:
+                temp_video = processed_dir / f"{archivo.stem}_temp.mp4"
+                ok = convertir_audio_a_video(archivo, temp_video)
+                if not ok:
+                    print(f"    [SKIP] Error en la conversión de {archivo.name}")
+                    error = True
+                    break
+                ok = recortar_silencios(temp_video, temp_recortado, config)
+                temp_video.unlink(missing_ok=True)
+            else:
+                ok = recortar_silencios(archivo, temp_recortado, config)
+            if not ok:
+                print(f"    [SKIP] Error en el recorte de {archivo.name}")
+                error = True
+                break
+            partes_recortadas.append(temp_recortado)
+        if not error:
+            ok = concatenar_partes(partes_recortadas, mp4_final)
+            if not ok:
+                print(f"    [SKIP] Error al concatenar.")
+        for temp in partes_recortadas:
+            temp.unlink(missing_ok=True)
         print()
     print("Listo.")
 
