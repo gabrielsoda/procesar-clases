@@ -4,7 +4,6 @@ y les quita los silencios con auto-editor
 
 Detecta videos pendientes en videos_dir que:
     - Matcheen el patron YYYY-MM-DD_NCOD.ext  o  YYYY-MM-DD_NCOD_pN.ext
-    - Tengan .txt asociado (ya transcriptos por procesar_clases.py)
     - No tengan ya un .mp4 en processed_videos_path
 
 Para archivos de audio (sin video), se genera automáticamente un video con
@@ -69,7 +68,7 @@ def detectar_pendientes(
         extensiones: list,
 ) -> list[dict]:
     """
-    Busca videos con .txt pero sin .mp4 ya procesado en processed_dir.
+    Busca videos sin .mp4 ya procesado en processed_dir.
     Devuelve lista de dicts con información de cada video, ordenados por fecha y códgio
     """
     pendientes = []
@@ -90,8 +89,8 @@ def detectar_pendientes(
             codigo = codigo.upper()
             if codigo not in codigos_validos:
                 continue
-            if not archivo.with_suffix(".txt").exists():
-                continue
+            #if not archivo.with_suffix(".txt").exists():
+            #    continue
             mp4_out = processed_dir / f"{archivo.stem}.mp4"
             if mp4_out.exists():
                 continue
@@ -280,7 +279,7 @@ def procesar(config: dict, auto_yes: bool = False):
     )
     if not pendientes:
         print("No hay archivos pendientes de procesar.")
-        print(f"(Criterio: en {videos_dir}, con .txt, y sin .mp4 en {processed_dir})")
+        print(f"(Criterio: en {videos_dir}, sin .mp4 en {processed_dir})")
         return
     pendientes = mostrar_preview_y_seleccionar(pendientes, config, auto_yes)
     if pendientes is None:
