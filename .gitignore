@@ -6,6 +6,5 @@ __pycache__/
 
 
 bin/
-client_secrets.json
-youtube_credentials.json
+credentials/
 *.uploaded
