@@ -25,9 +25,9 @@
 
 ### PowerShell
 
-- [ ] **Alias para `quitar_silencios.py`**: agregar un alias `qs` en el
+- [x] **Alias para `quitar_silencios.py`**: agregar un alias `qs` en el
       perfil de PowerShell, como ya existe `pc` para `procesar_clases.py`.
-- [ ] **Alias para `quitar_silencios.py` + `procesar_clases.py`**: agregar un alias `pcqs` en el
+- [x] **Alias para `quitar_silencios.py` + `procesar_clases.py`**: agregar un alias `pcqs` en el
       perfil de PowerShell que combine ambas funciones.
 
 ### subir_clases.py (script nuevo)
@@ -42,4 +42,7 @@
         - Asignar a playlist según código de materia
         - Subir subtítulos desde el `.txt` de transcripción
         - Crear archivo `.uploaded` como marker de completado
+
+### UI
+- [ ] **Rich**: Agregar colores a los menúes interactivos para simplificar la visualización de las distintas información que brinda el menú.
 

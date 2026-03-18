@@ -116,3 +116,55 @@ El campo `estado` es la fuente de verdad para el tracking. Se visualiza en Obsid
 ├── Kanban [COD].md                 ← tablero de tareas sueltas de la materia
 └── Clases [COD].base               ← vista de clases agrupadas por estado
 ```
+
+# Aliases en powershell:
+
+# Procesar clases TUIA: transcribir videos y generar notas en Obsidian
+function ProcesarClases {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\procesar_clases.py" @Args
+}
+Set-Alias -Name pc -Value ProcesarClases
+
+# Subir clases TUIA: subir a YouTube
+function SubirClases {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\subir_clases.py" @Args
+}
+Set-Alias -Name sc -Value SubirClases
+
+# Quitar silencios de clases TUIA con auto-editor
+function QuitarSilencios {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\quitar_silencios.py" @Args
+}
+Set-Alias -Name qs -Value QuitarSilencios
+
+# Pipeline completo de clases TUIA: transcribir, recortar silencios y subir a YouTube a futuro
+function ProcesarClasesCompleto {
+    param(
+        [switch]$y
+    )
+    $flags = @()
+    if ($y) { $flags += "-y" }
+    
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\procesar_clases.py" @flags
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error en procesar_clases.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
+        return
+    }
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\quitar_silencios.py" @flags
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error en quitar_silencios.py (código $LASTEXITCODE)." -ForegroundColor Red
+    }
+}
+Set-Alias -Name clases -Value ProcesarClasesCompleto
