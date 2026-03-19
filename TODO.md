@@ -27,21 +27,12 @@
 
 - [x] **Alias para `quitar_silencios.py`**: agregar un alias `qs` en el
       perfil de PowerShell, como ya existe `pc` para `procesar_clases.py`.
-- [x] **Alias para `quitar_silencios.py` + `procesar_clases.py`**: agregar un alias `pcqs` en el
-      perfil de PowerShell que combine ambas funciones.
+- [x] **Alias `clases`**: pipeline completo `procesar_clases.py` + `quitar_silencios.py` en secuencia.
 
 ### subir_clases.py (script nuevo)
 
-- [ ] **Subida a YouTube**: implementar un nuevo script `subir_clases.py` que tome
+- [x] **Subida a YouTube**: implementar un nuevo script `subir_clases.py` que tome
       los `.mp4` de `processed_videos_path` y los suba a YouTube via API v3.
-      Flujo previsto:
-        - Detectar pendientes: `.mp4` en `processed_videos_path` con `.txt` asociado
-          y sin `.uploaded` marker
-        - OAuth 2.0 con `google-auth` + `google-api-python-client`
-        - Subir video con título, descripción y categoría según `config.json`
-        - Asignar a playlist según código de materia
-        - Subir subtítulos desde el `.txt` de transcripción
-        - Crear archivo `.uploaded` como marker de completado
 
 ### UI
 - [ ] **Rich**: Agregar colores a los menúes interactivos para simplificar la visualización de las distintas información que brinda el menú.
