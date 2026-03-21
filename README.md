@@ -149,6 +149,16 @@ function QuitarSilencios {
 }
 Set-Alias -Name qs -Value QuitarSilencios
 
+# Limpiar clases TUIA: eliminar videos ya subidos a YouTube
+function LimpiarClases {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Args
+    )
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\limpiar_clases.py" @Args
+}
+Set-Alias -Name lc -Value LimpiarClases
+
 # Pipeline completo de clases TUIA: transcribir, recortar silencios y subir a YouTube a futuro
 function ProcesarClasesCompleto {
     param(
