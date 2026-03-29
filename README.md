@@ -159,14 +159,12 @@ function LimpiarClases {
 }
 Set-Alias -Name lc -Value LimpiarClases
 
-# Pipeline completo de clases TUIA: transcribir, recortar silencios y subir a YouTube a futuro
+# Pipeline completo de clases TUIA: transcribir, recortar silencios, subir a YouTube y limpiar
 function ProcesarClasesCompleto {
-    param(
-        [switch]$y
-    )
+    param([switch]$y)
     $flags = @()
     if ($y) { $flags += "-y" }
-    
+
     uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\procesar_clases.py" @flags
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error en procesar_clases.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
@@ -174,7 +172,14 @@ function ProcesarClasesCompleto {
     }
     uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\quitar_silencios.py" @flags
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Error en quitar_silencios.py (código $LASTEXITCODE)." -ForegroundColor Red
+        Write-Host "Error en quitar_silencios.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
+        return
     }
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\subir_clases.py" @flags
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error en subir_clases.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
+        return
+    }
+    uv run "C:\Users\Gabi\Proyectos\tuia-procesar-clases\limpiar_clases.py"
 }
 Set-Alias -Name clases -Value ProcesarClasesCompleto
