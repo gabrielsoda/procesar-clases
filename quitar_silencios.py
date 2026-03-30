@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import sys
 import json
+import shutil
 import subprocess
 import time
 import argparse
@@ -114,8 +115,8 @@ def detectar_pendientes(
             if codigo not in codigos_validos:
                 continue
             clave = f"{fecha}_{num_str}{codigo}"
-            mp4_out = processed_dir / f"{clave}.mp4"
-            if mp4_out.exists():
+            ya_procesado = any(processed_dir.glob(f"{clave}.*"))
+            if ya_procesado:
                 continue
             pendientes.append({
                 "archivo": archivo,
@@ -193,91 +194,136 @@ def convertir_audio_a_video(audio_path: Path, output_path: Path) -> bool:
     return True
 
 
+def copiar_sin_recortar(input_path: Path, output_path: Path) -> bool:
+    """Copia el archivo a processed_dir sin modificar. Devuelve True si fue exitoso."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"    Copiando sin recortar...")
+    try:
+        shutil.copy2(str(input_path), str(output_path))
+    except OSError as e:
+        print(f"    [ERROR] Error al copiar: {e}")
+        return False
+    tamanio = output_path.stat().st_size / (1024 * 1024)
+    print(f"    Copiado — {tamanio:.1f} MB")
+    return True
 
 
 # Preview interactivo
-
 def mostrar_preview_y_seleccionar(
-        grupos:list[dict],
+        grupos: list[dict],
         config: dict,
         auto_yes: bool,
-        ) -> list[dict] | None:
+) -> list[dict] | None:
     """
-    Muestra los archivos pendientes, permite al usuario elegir cuales
-    saltar recorte de silencios, y pide confirmación.
-    Devuelve una lista de grupos con el campo 'trim' asignado, o None si no se eligió recortar.
+    Muestra los archivos pendientes con acción por defecto,
+    permite al usuario cambiar acciones individuales, y pide confirmación.
+    Devuelve la lista de grupos con el campo 'accion' asignado, o None si cancela.
     """
     materias = config["materias"]
 
-    print(f"\nCantidad de grupos de archivos pendientes a procesar: {len(grupos)}\n")
+    # Asignar acción por defecto
+    for g in grupos:
+        tiene_audio = any(a["es_audio"] for a in g["archivos"])
+        g["accion"] = "copiar" if tiene_audio else "recortar"
+
+    print(f"\nArchivos pendientes a procesar: {len(grupos)}\n")
 
     for i, g in enumerate(grupos, 1):
         nombre_materia = materias.get(g["codigo"], g["codigo"])
         principal = g["archivos"][0]["archivo"].name
+        tiene_audio = any(a["es_audio"] for a in g["archivos"])
+        tipo = "AUDIO" if tiene_audio else "VIDEO"
+
         if g["es_multipart"]:
             partes_extra = ", ".join(a["archivo"].name for a in g["archivos"][1:])
             print(f"  {i}. {principal}  (+ {partes_extra})")
         else:
             print(f"  {i}. {principal}")
-        tiene_audio = any(a["es_audio"] for a in g["archivos"])
-        tipo = "AUDIO" if tiene_audio else "VIDEO"
-        print(f"       Materia: {nombre_materia}  [{tipo}]")
+
+        accion_texto = _texto_accion(g)
+        print(f"       {nombre_materia}  [{tipo}]  →  {accion_texto}")
         print()
 
-    # selección de archivos a saltar
-    if auto_yes:
-        for g in grupos:
-            g["trim"] = True
-    else:
-        print("    Saltar recorte de silencios en alguno?")
+    # Selección de cambios
+    if not auto_yes:
+        print("  ¿Cambiar acción en alguno?")
         try:
-            resp = input("    Números separados por coma (Enter para recortar silencios en todos): ").strip()
+            resp = input("  Números separados por coma (Enter para continuar): ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
-        skip_indices = set()
+
         if resp:
+            indices_cambiar = set()
             for parte in resp.split(","):
                 parte = parte.strip()
                 if parte.isdigit():
                     idx = int(parte)
                     if 1 <= idx <= len(grupos):
-                        skip_indices.add(idx)
-        for i, g in enumerate(grupos, 1):
-            g["trim"] = i not in skip_indices
+                        indices_cambiar.add(idx)
 
+            for idx in sorted(indices_cambiar):
+                g = grupos[idx - 1]
+                tiene_audio = any(a["es_audio"] for a in g["archivos"])
+                nombre = g["archivos"][0]["archivo"].name
+                print()
+                if tiene_audio:
+                    print(f"  {idx}. {nombre} [AUDIO]:")
+                    print(f"     a) convertir + recortar   b) copiar sin recortar   c) saltear")
+                    default = "b"
+                else:
+                    print(f"  {idx}. {nombre} [VIDEO]:")
+                    print(f"     a) recortar silencios   b) copiar sin recortar   c) saltear")
+                    default = "a"
 
-    # Resumen de confirmación
+                try:
+                    eleccion = input(f"     [{default}]: ").strip().lower() or default
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return None
+
+                if tiene_audio:
+                    opciones = {"a": "convertir_recortar", "b": "copiar", "c": "saltear"}
+                else:
+                    opciones = {"a": "recortar", "b": "copiar", "c": "saltear"}
+                g["accion"] = opciones.get(eleccion, opciones[default])
+
+    # Plan de ejecución
     print()
-    print("    Plan de ejecución:")
+    print("  Plan de ejecución:")
     print()
     for i, g in enumerate(grupos, 1):
-        tiene_audio = any(a["es_audio"] for a in g["archivos"])
         if g["es_multipart"]:
             nombre = g["clave"] + "  (multipart)"
         else:
             nombre = g["archivos"][0]["archivo"].name
-        if tiene_audio and g["trim"]:
-            accion = "fondo negro + recorte"
-        elif tiene_audio and not g["trim"]:
-            accion = "fondo negro (sin recorte)"
-        elif not tiene_audio and g["trim"]:
-            accion = "recorte"
-        else:
-            accion = "sin procesar (usa original)"
-        if g["es_multipart"]:
-            accion += " + concatenar"
-        print(f"    {i}. {nombre:40s} -> {accion}")
+        accion_texto = _texto_accion(g)
+        print(f"    {i}. {nombre:40s} →  {accion_texto}")
     print()
+
     if not auto_yes:
         try:
-            resp = input("    Está todo correcto? \n    Continuamos con la ejecución? [y/N]: ").strip().lower()
+            resp = input("  Continuamos con la ejecución? [y/N]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
         if resp not in ("s", "si", "y", "yes"):
             return None
+
     return grupos
+
+
+def _texto_accion(g: dict) -> str:
+    """Devuelve el texto descriptivo de la acción asignada a un grupo."""
+    accion = g["accion"]
+    sufijo = " + concatenar" if g["es_multipart"] else ""
+    textos = {
+        "recortar": "recortar silencios",
+        "copiar": "copiar sin recortar",
+        "convertir_recortar": "convertir a video + recortar",
+        "saltear": "saltear",
+    }
+    return textos.get(accion, str(accion)) + sufijo
 
 # recorte de silencios con auto-editor
 
@@ -340,6 +386,7 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
     output.parent.mkdir(parents=True, exist_ok=True)
     codecs = [obtener_codecs(p) for p in partes]
     stream_copy = len(set(codecs)) == 1
+    lista_path: Path | None = None
     if stream_copy:
         print(f"    Mismos codecs, concatenando sin re-encode...")
         lista_path = output.with_suffix(".txt")
@@ -373,7 +420,7 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
     result = subprocess.run(cmd, capture_output=True, text=True)
     tiempo = time.time() - t0
     # limpiar archivo de lista temporal
-    if stream_copy:
+    if lista_path is not None:
         lista_path.unlink(missing_ok=True)
     if result.returncode != 0:
         print(f"    [ERROR] Error al concatenar:")
@@ -411,93 +458,98 @@ def procesar(config: dict, auto_yes: bool = False):
     print()
     for g in grupos:
         nombre_materia = materias.get(g["codigo"], g["codigo"])
-        mp4_final = processed_dir / f"{g['clave']}.mp4"
+        archivo_final = processed_dir / f"{g['clave']}{g['archivos'][0]['archivo'].suffix}"
         print(f"-- {nombre_materia} — {g['clave']} --")
+        accion = g["accion"]
+
+        # saltear
+        if accion == "saltear":
+            print(f"    Salteado.")
+            print()
+            continue
+
         # grupo de un solo archivo
         if not g["es_multipart"]:
             a = g["archivos"][0]
             archivo = a["archivo"]
-            if not a["es_audio"] and not g["trim"]:
-                print(f"    Sin procesar. Usar original: {archivo.name}")
-                print()
-                continue
-            if a["es_audio"] and not g["trim"]:
-                ok = convertir_audio_a_video(archivo, mp4_final)
+
+            if accion == "copiar":
+                if a["es_audio"]:
+                    ok = convertir_audio_a_video(archivo, archivo_final)
+                else:
+                    ok = copiar_sin_recortar(archivo, archivo_final)
                 if not ok:
-                    print(f"    [SKIP] Error en la conversión.")
+                    print(f"    [SKIP] Error al copiar.")
                 print()
                 continue
-            if a["es_audio"] and g["trim"]:
+
+            if accion == "recortar":
+                ok = recortar_silencios(archivo, archivo_final, config)
+                if not ok:
+                    print(f"    [SKIP] Error en el recorte.")
+                print()
+                continue
+
+            if accion == "convertir_recortar":
                 temp_video = processed_dir / f"{g['clave']}_temp.mp4"
                 ok = convertir_audio_a_video(archivo, temp_video)
                 if not ok:
                     print(f"    [SKIP] Error en la conversión.")
                     print()
                     continue
-                ok = recortar_silencios(temp_video, mp4_final, config)
+                ok = recortar_silencios(temp_video, archivo_final, config)
                 temp_video.unlink(missing_ok=True)
                 if not ok:
                     print(f"    [SKIP] Error en el recorte.")
                 print()
                 continue
-            ok = recortar_silencios(archivo, mp4_final, config)
-            if not ok:
-                print(f"    [SKIP] Error en el recorte.")
-            print()
-            continue
-        # grupo multipart sin recorte → concatenar originales con re-encode
-        if not g["trim"]:
-            partes_preparadas = []
-            error = False
-            for a in g["archivos"]:
-                if a["es_audio"]:
-                    temp = processed_dir / f"{a['archivo'].stem}_temp.mp4"
-                    ok = convertir_audio_a_video(a["archivo"], temp)
-                    if not ok:
-                        print(f"    [SKIP] Error en la conversión de {a['archivo'].name}")
-                        error = True
-                        break
-                    partes_preparadas.append(temp)
-                else:
-                    partes_preparadas.append(a["archivo"])
-            if not error:
-                ok = concatenar_partes(partes_preparadas, mp4_final)
-                if not ok:
-                    print(f"    [SKIP] Error al concatenar.")
-            for temp in partes_preparadas:
-                if temp.parent == processed_dir:
-                    temp.unlink(missing_ok=True)
-            print()
-            continue
-        # grupo multipart con recorte → recortar cada parte + concatenar con copy
-        partes_recortadas = []
+
+        # grupo multipart
+        partes_procesadas = []
         error = False
         for a in g["archivos"]:
             archivo = a["archivo"]
             num_p = a["num_parte"] or 1
-            temp_recortado = processed_dir / f"{g['clave']}_trimmed_p{num_p}.mp4"
-            if a["es_audio"]:
-                temp_video = processed_dir / f"{archivo.stem}_temp.mp4"
-                ok = convertir_audio_a_video(archivo, temp_video)
+
+            if accion == "copiar":
+                if a["es_audio"]:
+                    temp = processed_dir / f"{g['clave']}_p{num_p}.mp4"
+                    ok = convertir_audio_a_video(archivo, temp)
+                    if not ok:
+                        print(f"    [SKIP] Error en la conversión de {archivo.name}")
+                        error = True
+                        break
+                    partes_procesadas.append(temp)
+                else:
+                    partes_procesadas.append(archivo)
+            else:
+                # recortar o convertir_recortar
+                temp_recortado = processed_dir / f"{g['clave']}_trimmed_p{num_p}.mp4"
+                if a["es_audio"]:
+                    temp_video = processed_dir / f"{archivo.stem}_temp.mp4"
+                    ok = convertir_audio_a_video(archivo, temp_video)
+                    if not ok:
+                        print(f"    [SKIP] Error en la conversión de {archivo.name}")
+                        error = True
+                        break
+                    ok = recortar_silencios(temp_video, temp_recortado, config)
+                    temp_video.unlink(missing_ok=True)
+                else:
+                    ok = recortar_silencios(archivo, temp_recortado, config)
                 if not ok:
-                    print(f"    [SKIP] Error en la conversión de {archivo.name}")
+                    print(f"    [SKIP] Error en el recorte de {archivo.name}")
                     error = True
                     break
-                ok = recortar_silencios(temp_video, temp_recortado, config)
-                temp_video.unlink(missing_ok=True)
-            else:
-                ok = recortar_silencios(archivo, temp_recortado, config)
-            if not ok:
-                print(f"    [SKIP] Error en el recorte de {archivo.name}")
-                error = True
-                break
-            partes_recortadas.append(temp_recortado)
+                partes_procesadas.append(temp_recortado)
+
         if not error:
-            ok = concatenar_partes(partes_recortadas, mp4_final)
+            ok = concatenar_partes(partes_procesadas, archivo_final)
             if not ok:
                 print(f"    [SKIP] Error al concatenar.")
-        for temp in partes_recortadas:
-            temp.unlink(missing_ok=True)
+        # limpiar temporales
+        for temp in partes_procesadas:
+            if temp.parent == processed_dir:
+                temp.unlink(missing_ok=True)
         print()
     print("Listo.")
 

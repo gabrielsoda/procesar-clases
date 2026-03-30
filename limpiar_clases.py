@@ -12,7 +12,7 @@ import json
 # constantes
 CONFIG_PATH = Path(__file__).parent / "config.json"
 VIDEO_PROCESADO = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,4})\.mp4$", re.IGNORECASE
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,4})\.\w+$", re.IGNORECASE
 )
 
 
@@ -38,7 +38,9 @@ def detectar_limpiables(
     arma un dict por cada grupo con mp4 (Path), uploaded (Path), original (Path o None), fecha, num, codigo
     devuelve una lista ordenada por fecha y código"""
     limpiables = []
-    for archivo in processed_dir.glob("*.mp4"):
+    for archivo in processed_dir.iterdir():
+        if not archivo.is_file():
+            continue
         m = VIDEO_PROCESADO.match(archivo.name)
         if not m:
             continue
