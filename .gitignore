@@ -1,10 +1,11 @@
 .venv/
+.ruff_cache/
 __pycache__/
 *.pyc
 *.pyo
 .env
 
-
 bin/
 credentials/
+config.json
 *.uploaded
