@@ -34,6 +34,24 @@
 - [x] **Subida a YouTube**: implementar un nuevo script `subir_clases.py` que tome
       los `.mp4` de `processed_videos_path` y los suba a YouTube via API v3.
 
+### subir_clases.py
+
+- [ ] **Manejar token expirado**: cuando `creds.refresh()` falla con
+      `RefreshError` (token expirado o revocado), borrar `youtube_token.json`
+      automáticamente y re-autenticar en vez de crashear con traceback.
+
+- [ ] **Idioma del video**: agregar `defaultLanguage: "es-419"` al snippet
+      de la subida para que YouTube lo detecte como Español (Latinoamérica)
+      automáticamente.
+
+### README.md
+
+- [ ] **Documentar setup de YouTube**: agregar sección explicando cómo
+      configurar la autenticación OAuth (crear proyecto en Google Cloud Console,
+      descargar `client_secret.json`, primera ejecución que abre el navegador)
+      y cómo funcionan las playlists en `config.json`.
+
 ### UI
+
 - [ ] **Rich**: Agregar colores a los menúes interactivos para simplificar la visualización de las distintas información que brinda el menú.
 
