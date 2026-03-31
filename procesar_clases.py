@@ -146,19 +146,19 @@ Aclaración extra:
 
 # Principal: YYYY-MM-DD_COD.(ext)   — sin número, el script lo calcula en base a las notas existentes
 VIDEO_PRINCIPAL = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_([A-Z]{2,4})\.\w+$",
+    r"^(\d{4}-\d{2}-\d{2})_([A-Z0-9]{2,4})\.\w+$",
     re.IGNORECASE,
 )
 
 # Parte: YYYY-MM-DD_COD_pN.(ext)   — segunda parte o continuación de una grabación cortada
 VIDEO_PARTE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_([A-Z]{2,4})_p(\d+)\.\w+$",
+    r"^(\d{4}-\d{2}-\d{2})_([A-Z0-9]{2,4})_p(\d+)\.\w+$",
     re.IGNORECASE,
 )
 
 # Nota de clase en vault: YYYY-MM-DD_NCOD.md  — para calcular número
 NOTA_CLASE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,4})\.md$",
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})\.md$",
     re.IGNORECASE,
 )
 

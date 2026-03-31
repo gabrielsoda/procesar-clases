@@ -31,11 +31,11 @@ import argparse
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
 VIDEO_PROCESADO = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,4})\.\w+$",
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})\.\w+$",
     re.IGNORECASE,
 )
 VIDEO_PARTE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z]{2,4})_p(\d+)\.\w+$",
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})_p(\d+)\.\w+$",
     re.IGNORECASE,
 )
 
