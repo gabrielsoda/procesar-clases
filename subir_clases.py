@@ -65,13 +65,22 @@ def autenticar_youtube(config: dict):
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             print("    Refrescando token de acceso...")
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                print("    Token expirado o revocado. Re-autenticando...")
+                TOKEN_PATH.unlink(missing_ok=True)
+                client_secret_path = CONFIG_PATH.parent / config["youtube_credentials"]
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    str(client_secret_path), SCOPES
+                )
+                creds = flow.run_local_server(port=0)
         else:
             print("    Abriendo navegador para autenticar con Google...")
             client_secret_path = CONFIG_PATH.parent / config["youtube_credentials"]
             if not client_secret_path.exists():
                 print(f"    [ERROR] No se encontró {client_secret_path}")
-                print(f"    Descargá el client_secret.json desde Google Cloud Console")
+                print("    Descargá el client_secret.json desde Google Cloud Console")
                 sys.exit(1)
             flow = InstalledAppFlow.from_client_secrets_file(
                 str(client_secret_path), SCOPES
