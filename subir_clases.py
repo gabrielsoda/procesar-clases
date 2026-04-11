@@ -195,6 +195,7 @@ def subir_video(youtube, video_path: Path, titulo: str) -> str | None:
             "title": titulo,
             "description": "",
             "categoryId": "27",
+            "defaultLanguage": "es-419",
         },
         "status": {
             "privacyStatus": "private",
