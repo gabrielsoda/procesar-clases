@@ -194,13 +194,20 @@ clases -y       # skipea confirmación en pc, qs y sc (lc siempre pregunta)
 
 Si algún paso falla, el pipeline se detiene. Si un paso no tiene trabajo pendiente, imprime un mensaje y pasa al siguiente.
 
-### Flag de idioma (solo `procesar_clases.py`)
+### Flag de idioma
 
 WhisperX autodetecta el idioma, pero si querés forzarlo:
 
 ```bash
 uv run procesar_clases.py -l es     # forzar español
 uv run procesar_clases.py -l en     # forzar inglés
+```
+
+También funciona desde el pipeline completo — se propaga solo a `pc`:
+
+```
+clases -l es        # fuerza español en la transcripción
+clases -y -l es     # sin confirmación + idioma forzado
 ```
 
 ## Detalle de cada script
@@ -294,11 +301,17 @@ Set-Alias -Name lc -Value LimpiarClases
 
 # Pipeline completo: pc → qs → sc → lc
 function ProcesarClasesCompleto {
-    param([switch]$y)
+    param(
+        [switch]$y,
+        [string]$l
+    )
     $flags = @()
     if ($y) { $flags += "-y" }
 
-    uv run "C:\ruta\a\procesar-clases\procesar_clases.py" @flags
+    $pc_flags = $flags.Clone()
+    if ($l) { $pc_flags += "-l"; $pc_flags += $l }
+
+    uv run "C:\ruta\a\procesar-clases\procesar_clases.py" @pc_flags
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error en procesar_clases.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
         return

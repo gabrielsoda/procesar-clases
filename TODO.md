@@ -34,15 +34,31 @@
 - [x] **Subida a YouTube**: implementar un nuevo script `subir_clases.py` que tome
       los `.mp4` de `processed_videos_path` y los suba a YouTube via API v3.
 
+### limpiar_clases.py
+
+- [ ] **Borrar partes al limpiar**: cuando se limpia un video multipart
+      (ej: `2026-03-31_4GDP.mp4`), también borrar los archivos `_p2`, `_p3`, etc.
+      del `videos_dir`. Actualmente solo borra el original principal, dejando las
+      partes huérfanas que `qs` vuelve a detectar como pendientes.
+
 ### subir_clases.py
 
 - [ ] **Manejar token expirado**: cuando `creds.refresh()` falla con
       `RefreshError` (token expirado o revocado), borrar `youtube_token.json`
       automáticamente y re-autenticar en vez de crashear con traceback.
 
-- [ ] **Idioma del video**: agregar `defaultLanguage: "es-419"` al snippet
+- [x] **Idioma del video**: agregar `defaultLanguage: "es-419"` al snippet
       de la subida para que YouTube lo detecte como Español (Latinoamérica)
       automáticamente.
+
+- [ ] **Idioma configurable por video**: el flag `-l` que se pasa a WhisperX
+      para la transcripción debe propagarse también a `subir_clases.py` para setear
+      `defaultLanguage` en YouTube. Como WhisperX usa códigos cortos (`es`, `en`, `it`)
+      y YouTube usa BCP-47, hace falta un mapeo interno: español → `es-419`, inglés → `en`,
+      y los idiomas comunes (italiano, portugués, francés, alemán, ruso, chino, japonés,
+      etc.) → su BCP-47 correspondiente. Si no se pasa `-l`, se usa `es-419` como default.
+      Implica propagar el flag por todo el pipeline (`pc → sc`) y desde
+      `ProcesarClasesCompleto` en PowerShell.
 
 ### README.md
 
@@ -50,6 +66,27 @@
       configurar la autenticación OAuth (crear proyecto en Google Cloud Console,
       descargar `client_secret.json`, primera ejecución que abre el navegador)
       y cómo funcionan las playlists en `config.json`.
+
+### PowerShell
+
+- [x] **Propagar flag `-l` al pipeline `clases`**: el flag `-l` (idioma de transcripción)
+      solo existe en `procesar_clases.py` pero no se puede pasar desde el pipeline `clases`.
+      Cuando WhisperX autodetecta mal el idioma (ej: detecta `jw` en vez de `es` en una
+      clase en español), la transcripción crashea y no se genera ni el `.txt` ni la nota
+      en Obsidian. Para forzar el idioma hay que correr `pc -l es` por separado, lo que
+      rompe el flujo del pipeline completo. La solución es agregar el parámetro `-l` a
+      `ProcesarClasesCompleto` en PowerShell y propagarlo a `pc`, igual que se hace con `-y`.
+
+### Videos misceláneos (todos los scripts)
+
+- [ ] **Eliminar código `OTR` y procesar misceláneos por nombre original**: el código
+      `OTR` es un comodín artificial que obliga a renombrar manualmente cualquier video
+      misceláneo siguiendo la convención `YYYY-MM-DD_OTR.mkv`, generando ruido y fricción
+      innecesaria. Si el nombre del archivo no matchea ningún código conocido, procesarlo
+      como misceláneo usando el nombre original del archivo como título (para la nota en
+      Obsidian y para el video en YouTube). Si el nombre no incluye una fecha en formato
+      `YYYY-MM-DD`, usar la fecha de modificación del archivo como metadato. Eliminar
+      `OTR` de `config.json` y de toda la lógica interna.
 
 ### UI
 
