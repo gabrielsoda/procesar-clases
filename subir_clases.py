@@ -41,6 +41,46 @@ VIDEO_PROCESADO = re.compile(
 VIDEO_OTRO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.\w+$",
 )
+IDIOMAS_NOMBRE = {
+    "es-419": "Español (Latinoamérica)",
+    "en": "Inglés",
+}
+
+
+def mapear_idioma(codigo_whisperx: str) -> str:
+    """Convierte código de idioma WhisperX a BCP-47 para YouTube."""
+    if codigo_whisperx == "es":
+        return "es-419"
+    return codigo_whisperx
+
+
+def nombre_idioma(lang: str | None) -> str:
+    """Devuelve el nombre legible del idioma, o 'sin idioma'."""
+    if lang is None:
+        return "sin idioma"
+    return IDIOMAS_NOMBRE.get(lang, lang)
+
+
+def pedir_idioma() -> str | None:
+    """
+    Pregunta el idioma para los videos.
+    Devuelve el código BCP-47 o None (sin idioma).
+    """
+    print("  Idioma de los videos:")
+    print("    e) Español (Latinoamérica)    i) Inglés    o) Otro (sin idioma)")
+    print()
+    try:
+        resp = input("  Para todos (Enter = español): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "es-419"
+    if resp in ("", "e", "es", "español"):
+        return "es-419"
+    if resp in ("i", "en", "inglés", "ingles"):
+        return "en"
+    if resp in ("o", "otro"):
+        return None
+    return "es-419"
 
 
 # configuracion
@@ -228,19 +268,21 @@ def mostrar_preview_y_seleccionar(
 
 
 # subida de video
-def subir_video(youtube, video_path: Path, titulo: str) -> str | None:
+def subir_video(youtube, video_path: Path, titulo: str, lang: str | None = "es-419") -> str | None:
     """
     Sube un video a Youtube
     Usa resumable upload con reintentos y exponential backoff.
     Devuelve el video_id si fue exitoso, None si falló.
     """
+    snippet = {
+        "title": titulo,
+        "description": "",
+        "categoryId": "27",
+    }
+    if lang:
+        snippet["defaultLanguage"] = lang
     body = {
-        "snippet": {
-            "title": titulo,
-            "description": "",
-            "categoryId": "27",
-            "defaultLanguage": "es-419",
-        },
+        "snippet": snippet,
         "status": {
             "privacyStatus": "private",
         },
@@ -313,7 +355,7 @@ def agregar_a_playlist(youtube, video_id: str, playlist_id: str) -> bool:
 
 
 # flujo principal
-def procesar(config: dict, auto_yes: bool = False):
+def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     processed_dir = Path(config["processed_videos_path"])
     materias = config["materias"]
     playlists = config.get("youtube_playlists", {})
@@ -331,6 +373,14 @@ def procesar(config: dict, auto_yes: bool = False):
     if pendientes is None:
         print("Abortado.")
         return
+    # resolver idioma
+    if lang is not None:
+        pass  # flag explícito, usar tal cual
+    elif auto_yes:
+        lang = "es-419"  # default en modo automático
+    else:
+        lang = pedir_idioma()
+    print(f"\n    Idioma: {nombre_idioma(lang)}")
     youtube = autenticar_youtube(config)
     print()
     subidos = 0
@@ -348,7 +398,7 @@ def procesar(config: dict, auto_yes: bool = False):
             playlist_id = otros_playlist
         print(f"-- {titulo} --")
         # subir video
-        video_id = subir_video(youtube, archivo, titulo)
+        video_id = subir_video(youtube, archivo, titulo, lang)
         if not video_id:
             print("    [SKIP] Error en la subida.")
             errores += 1
@@ -381,6 +431,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Subir todos los archivos sin pedir confirmación",
     )
+    parser.add_argument(
+        "-l",
+        "--lang",
+        default=None,
+        help="Idioma de los videos (ej: es, en). Sin este flag, pregunta interactivamente.",
+    )
     args = parser.parse_args()
     config = cargar_config()
-    procesar(config, auto_yes=args.yes)
+    lang = mapear_idioma(args.lang) if args.lang else None
+    procesar(config, auto_yes=args.yes, lang=lang)

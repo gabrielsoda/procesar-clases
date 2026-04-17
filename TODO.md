@@ -51,7 +51,7 @@
       de la subida para que YouTube lo detecte como Español (Latinoamérica)
       automáticamente.
 
-- [ ] **Idioma configurable por video**: el flag `-l` que se pasa a WhisperX
+- [x] **Idioma configurable por video**: el flag `-l` que se pasa a WhisperX
       para la transcripción debe propagarse también a `subir_clases.py` para setear
       `defaultLanguage` en YouTube. Como WhisperX usa códigos cortos (`es`, `en`, `it`)
       y YouTube usa BCP-47, hace falta un mapeo interno: español → `es-419`, inglés → `en`,

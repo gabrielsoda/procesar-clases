@@ -215,14 +215,17 @@ Si algún paso falla, el pipeline se detiene. Si un paso no tiene trabajo pendie
 WhisperX autodetecta el idioma, pero si querés forzarlo:
 
 ```bash
-uv run procesar_clases.py -l es     # forzar español
-uv run procesar_clases.py -l en     # forzar inglés
+uv run procesar_clases.py -l es     # forzar español en la transcripción
+uv run procesar_clases.py -l en     # forzar inglés en la transcripción
+uv run subir_clases.py -l es        # forzar español en YouTube
 ```
 
-También funciona desde el pipeline completo — se propaga solo a `pc`:
+`subir_clases.py` mapea el código al formato BCP-47 de YouTube (`es` → `es-419`, el resto se pasa tal cual). Si no se pasa `-l`, pregunta interactivamente (español / inglés / otro). Con `-y` sin `-l`, usa español por defecto.
+
+Desde el pipeline completo, `-l` se propaga a `pc` y `sc`:
 
 ```
-clases -l es        # fuerza español en la transcripción
+clases -l es        # fuerza español en transcripción y en YouTube
 clases -lang es     # equivalente usando el alias largo
 clases -y -l es     # sin confirmación + idioma forzado
 ```
@@ -258,7 +261,7 @@ Para grabaciones multipart, procesa cada parte y las concatena en un solo archiv
 
 ### `subir_clases.py` (alias: `sc`)
 
-Detecta videos en `processed_videos_path` que no tengan el marker `.uploaded`. Los sube a YouTube como videos privados, los agrega a la playlist configurada, y crea el marker.
+Detecta videos en `processed_videos_path` que no tengan el marker `.uploaded`. Los sube a YouTube como videos privados, los agrega a la playlist configurada, y crea el marker. Antes de subir, pregunta el idioma del video (español / inglés / otro); con `-l` se puede forzar sin que pregunte.
 
 ### `limpiar_clases.py` (alias: `lc`)
 
@@ -326,8 +329,11 @@ function ProcesarClasesCompleto {
     $flags = @()
     if ($y) { $flags += "-y" }
 
-    $pc_flags = $flags.Clone()
-    if ($l) { $pc_flags += "-l"; $pc_flags += $l }
+    $lang_flags = @()
+    if ($l) { $lang_flags += "-l"; $lang_flags += $l }
+
+    $pc_flags = $flags + $lang_flags
+    $sc_flags = $flags + $lang_flags
 
     uv run "C:\ruta\a\procesar-clases\procesar_clases.py" @pc_flags
     if ($LASTEXITCODE -ne 0) {
@@ -339,7 +345,7 @@ function ProcesarClasesCompleto {
         Write-Host "Error en quitar_silencios.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
         return
     }
-    uv run "C:\ruta\a\procesar-clases\subir_clases.py" @flags
+    uv run "C:\ruta\a\procesar-clases\subir_clases.py" @sc_flags
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error en subir_clases.py (código $LASTEXITCODE). Abortando pipeline." -ForegroundColor Red
         return
