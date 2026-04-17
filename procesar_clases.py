@@ -40,8 +40,8 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
-
 
 # configuracion
 
@@ -56,7 +56,7 @@ def cargar_config() -> dict:
         return json.load(f)
 
 
-# Lectura y procesamiento de templates de Obsidian 
+# Lectura y procesamiento de templates de Obsidian
 # (más adelante evaluar si integrar con el plugin "templater" y desligarse de esta responsabilidad)
 
 
@@ -83,7 +83,9 @@ def leer_template_frontmatter(vault_dir: Path, codigo: str) -> str | None:
     return m.group(1)
 
 
-def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None, fecha: str = "") -> str:
+def aplicar_valores_al_frontmatter(
+    frontmatter: str, anterior: str | None, fecha: str = ""
+) -> str:
     """
     Toma el bloque YAML del template y reemplaza los campos dinámicos:
     - 'Clase anterior' → link a la clase anterior real (o vacío si es la primera)
@@ -114,7 +116,7 @@ def aplicar_valores_al_frontmatter(frontmatter: str, anterior: str | None, fecha
         r"\1cruda",
         resultado,
     )
-    # Reemplaza fecha: si existe en el template (ahora solo usado en OTR y eventualmente otros)
+    # Reemplaza fecha: si existe en el template (usado en "otros" y eventualmente otros casos)
     if fecha:
         resultado = re.sub(
             r"(fecha:\s*).*",
@@ -161,6 +163,13 @@ NOTA_CLASE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})\.md$",
     re.IGNORECASE,
 )
+
+# Otros: cualquier video que No matchea un código en el config file.
+# Se extrae la fecha si el nombre empieza con YYYY-MM-DD_, si no se usa la fecha de modificación
+FECHA_EN_NOMBRE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(.+)\.\w+$")
+
+# Nota de "otro" en vault: YYYY-MM-DD_N_<nombre_original>.md
+NOTA_OTRO = re.compile(r"^\d{4}-\d{2}-\d{2}_(\d+)_.+\.md$")
 
 
 def detectar_videos_pendientes(
@@ -221,6 +230,67 @@ def detectar_videos_pendientes(
     return principales, partes
 
 
+def detectar_otros(
+    videos_dir: Path,
+    codigos_validos: set,
+    extensiones: list,
+) -> list[dict]:
+    """
+    Busca videos que NO matchean ningún código conocido (ni principal ni parte)
+    y no tienen .txt asociado. Extrae fecha del nombre si la incluye, si no usa
+    la fecha de modificación del archivo.
+    """
+    otros = []
+    for ext in extensiones:
+        for video in videos_dir.glob(f"*.{ext}"):
+            # Skip si matchea clase principal o parte con código válido
+            m_p = VIDEO_PRINCIPAL.match(video.name)
+            if m_p and m_p.group(2).upper() in codigos_validos:
+                continue
+            m_pa = VIDEO_PARTE.match(video.name)
+            if m_pa and m_pa.group(2).upper() in codigos_validos:
+                continue
+            # Skip si ya fue transcripto
+            if video.with_suffix(".txt").exists():
+                continue
+
+            # Extraer fecha y nombre original
+            m_fecha = FECHA_EN_NOMBRE.match(video.name)
+            if m_fecha:
+                fecha = m_fecha.group(1)
+                nombre_original = m_fecha.group(2)
+            else:
+                mtime = datetime.fromtimestamp(video.stat().st_mtime)
+                fecha = mtime.strftime("%Y-%m-%d")
+                nombre_original = video.stem
+
+            otros.append(
+                {
+                    "video": video,
+                    "fecha": fecha,
+                    "nombre_original": nombre_original,
+                    "nombre_archivo_original": video.name,
+                }
+            )
+    otros.sort(key=lambda x: (x["fecha"], x["nombre_original"]))
+    return otros
+
+
+def calcular_numero_otro(carpeta_otros: Path) -> int:
+    """
+    Cuenta las notas existentes en carpeta_otros que matchean el patrón
+    YYYY-MM-DD_N_<nombre>.md y devuelve el próximo N.
+    """
+    max_n = 0
+    if not carpeta_otros.exists():
+        return 1
+    for archivo in carpeta_otros.glob("*.md"):
+        m = NOTA_OTRO.match(archivo.name)
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return max_n + 1
+
+
 # Cálculo del número de clase
 
 
@@ -264,14 +334,16 @@ def buscar_nota_principal_para_parte(
 def mostrar_preview(
     principales: list[dict],
     partes: list[dict],
+    otros: list[dict],
     numeros_calculados: dict[str, int],
     materias: dict,
+    otros_dir: str | None,
 ) -> None:
     """
     Muestra al usuario qué va a hacer el script antes de ejecutar.
     numeros_calculados mapea "fecha_codigo" → N asignado.
     """
-    total = len(principales) + len(partes)
+    total = len(principales) + len(partes) + len(otros)
     print(f"\nVideos pendientes encontrados: {total}\n")
 
     if principales:
@@ -304,12 +376,28 @@ def mostrar_preview(
                     f"  {i}. {p['nombre_original']:40s} →  appendea a nota existente en {carpeta}/"
                 )
         print()
+    if otros:
+        print("  OTROS:")
+        offset = len(principales) + len(partes)
+        for i, o in enumerate(otros, offset + 1):
+            nombre_nuevo = o["nombre_base"]
+            destino = (
+                f"{otros_dir}/{nombre_nuevo}.md" if otros_dir else "(sin otros_dir)"
+            )
+            print(
+                f"  {i}. {o['nombre_archivo_original']:40s} →  {destino}  (#{o['n']})"
+            )
+        print()
 
 
 def pedir_confirmacion() -> bool:
     """Pide confirmación al usuario. Devuelve True si confirma."""
     try:
-        resp = input("  Así está bien? \n  Continuamos con la ejecución? [y/N]: ").strip().lower()
+        resp = (
+            input("  Así está bien? \n  Continuamos con la ejecución? [y/N]: ")
+            .strip()
+            .lower()
+        )
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -500,6 +588,7 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     model = config["whisperx_model"]
     extensiones = config["file_extensions"]
     materias = config["materias"]
+    otros_dir = config.get("otros_dir")
 
     codigos_validos = set(materias.keys())
 
@@ -513,10 +602,17 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     principales, partes = detectar_videos_pendientes(
         videos_dir, codigos_validos, extensiones
     )
+    otros = detectar_otros(videos_dir, codigos_validos, extensiones)
 
-    if not principales and not partes:
+    if not principales and not partes and not otros:
         print("No hay videos pendientes de transcribir.")
         return
+    if otros and not otros_dir:
+        print(
+            f"[AVISO] Hay {len(otros)} video(s) que no matchean códigos conocidos de clases, "
+              "pero 'otros_dir' no está configurado en config.json. Se omiten."
+        )
+        otros = []
 
     # ── Calcular números de clase para cada principal ──
     # Se calculan todos ANTES de procesar para que el preview sea correcto.
@@ -536,8 +632,18 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
         numeros_calculados[f"{p['fecha']}_{p['codigo']}"] = n
         offset_por_codigo[codigo] += 1
 
+    # Calcular N para cada "otro"
+    if otros:
+        assert otros_dir is not None  # garantizado por el check previo
+        carpeta_otros = vault_dir / otros_dir
+        carpeta_otros.mkdir(parents=True, exist_ok=True)
+        n_base = calcular_numero_otro(carpeta_otros)
+        for i, o in enumerate(otros):
+            o["n"] = n_base + i
+            o["nombre_base"] = f"{o['fecha']}_{o['n']}_{o['nombre_original']}"
+
     # ── Preview ──
-    mostrar_preview(principales, partes, numeros_calculados, materias)
+    mostrar_preview(principales, partes, otros, numeros_calculados, materias, otros_dir)
     idioma = lang if lang else "autodetectar"
     print(f"  Idioma de transcripción: {idioma}")
     print()
@@ -587,10 +693,13 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
         nombre_parte_nuevo = f"{nombre_base_principal}_p{p['num_parte']}"
         p["video"] = renombrar_video(p["video"], nombre_parte_nuevo)
         p["skip"] = False
+    for o in otros:
+        o["video"] = renombrar_video(o["video"], o["nombre_base"])
 
     # PASO 2: Transcribir todo en una sola llamada a WhisperX
     todos_los_videos = [p["video"] for p in principales]
     todos_los_videos += [p["video"] for p in partes if not p.get("skip")]
+    todos_los_videos += [o["video"] for o in otros]
 
     if todos_los_videos:
         transcripciones = transcribir_batch(todos_los_videos, whisperx_exe, model, lang)
@@ -624,14 +733,12 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
         # Crear nota _t (texto crudo)
         crear_nota_transcripcion(carpeta_transcripciones, nombre_base, texto)
 
-        # Buscar clase anterior (no aplica para OTR, son videos sueltos)
-        anterior = None
-        if codigo != "OTR":
-            anterior = clase_anterior(carpeta_materia, fecha, n, codigo)
-            if anterior:
-                print(f"  Clase anterior detectada: {anterior}")
-            else:
-                print(f"  No se encontró clase anterior (es la primera de {codigo})")
+        # Buscar clase anterior
+        anterior = clase_anterior(carpeta_materia, fecha, n, codigo)
+        if anterior:
+            print(f"  Clase anterior detectada: {anterior}")
+        else:
+            print(f"  No se encontró clase anterior (es la primera de {codigo})")
 
         # Leer frontmatter del template
         fm_raw = leer_template_frontmatter(vault_dir, codigo)
@@ -649,8 +756,8 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
             texto=texto,
         )
 
-        # Actualizar "Siguiente clase" en la nota anterior (no aplica para OTR)
-        if anterior and codigo != "OTR":
+        # Actualizar "Siguiente clase" en la nota anterior
+        if anterior:
             nota_anterior_path = carpeta_materia / f"{anterior}.md"
             actualizar_siguiente_clase(nota_anterior_path, nombre_base)
 
@@ -691,6 +798,41 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
         appendear_a_transcripcion(
             carpeta_transcripciones, nombre_base_principal, texto, num_parte
         )
+
+    # PASO 5: Crear notas de "otros"
+    if otros:
+        assert otros_dir is not None
+        carpeta_otros = vault_dir / otros_dir
+        for o in otros:
+            video = o["video"]
+            nombre_base = o["nombre_base"]
+            carpeta_transcripciones = carpeta_otros / "Transcripciones"
+
+            txt_path = transcripciones.get(video)
+            if txt_path is None:
+                print(f"\n  [SKIP] No hay transcripción para {video.name}")
+                continue
+
+            print(f"\n[OTRO] {nombre_base}")
+
+            texto = leer_txt(txt_path)
+
+            carpeta_transcripciones.mkdir(parents=True, exist_ok=True)
+            crear_nota_transcripcion(carpeta_transcripciones, nombre_base, texto)
+
+            # Leer frontmatter del template Otros.md si existe
+            fm_raw = leer_template_frontmatter(vault_dir, "Otros")
+            if fm_raw:
+                frontmatter = aplicar_valores_al_frontmatter(fm_raw, None, o["fecha"])
+            else:
+                frontmatter = frontmatter_generico(None)
+
+            crear_nota_clase(
+                carpeta_materia=carpeta_otros,
+                nombre_base=nombre_base,
+                frontmatter=frontmatter,
+                texto=texto,
+            )
 
     print("\n")
     print("Procesamiento completado.")

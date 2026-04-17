@@ -77,16 +77,25 @@
       rompe el flujo del pipeline completo. La solución es agregar el parámetro `-l` a
       `ProcesarClasesCompleto` en PowerShell y propagarlo a `pc`, igual que se hace con `-y`.
 
-### Videos misceláneos (todos los scripts)
+### Videos "otros" (todos los scripts)
 
-- [ ] **Eliminar código `OTR` y procesar misceláneos por nombre original**: el código
+- [x] **Eliminar código `OTR` y procesar "otros" por nombre original**: el código
       `OTR` es un comodín artificial que obliga a renombrar manualmente cualquier video
-      misceláneo siguiendo la convención `YYYY-MM-DD_OTR.mkv`, generando ruido y fricción
-      innecesaria. Si el nombre del archivo no matchea ningún código conocido, procesarlo
-      como misceláneo usando el nombre original del archivo como título (para la nota en
-      Obsidian y para el video en YouTube). Si el nombre no incluye una fecha en formato
-      `YYYY-MM-DD`, usar la fecha de modificación del archivo como metadato. Eliminar
-      `OTR` de `config.json` y de toda la lógica interna.
+      que no sea una clase, siguiendo la convención `YYYY-MM-DD_OTR.mkv`, generando ruido
+      y fricción innecesaria. Si el nombre del archivo no matchea ningún código conocido
+      del `config.json`, procesarlo como "otro" conservando el nombre original del archivo
+      como título (para la nota en Obsidian y para el video en YouTube), renombrando el
+      archivo en disco a `YYYY-MM-DD_<nombre_original>.ext`. Si el nombre no incluye una
+      fecha en formato `YYYY-MM-DD`, usar la fecha de modificación del archivo como
+      metadato y como prefijo del renombrado. Eliminar `OTR` de `config.json` y de toda
+      la lógica interna.
+
+- [ ] **Fuzzy matching de códigos mal tipeados**: cuando un video cae en la categoría
+      "otros" porque su código no matchea ninguno del `config.json`, chequear si el nombre
+      del archivo se parece a algún código conocido (ej: `YYYY-MM-DD_AA3.mkv` cuando
+      existe `AA2`). Si la similitud es alta, avisar al usuario antes de procesarlo como
+      "otro": "¿este video está mal nombrado? el código no coincide exacto con `AA2`,
+      querés renombrarlo?". No implementar todavía — dejar anotado para más adelante.
 
 ### UI
 

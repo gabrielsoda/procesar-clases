@@ -1,3 +1,4 @@
+claude --resume "complete-clases-pipeline"
 # procesar-clases
 
 Pipeline para automatizar el procesamiento de clases grabadas: transcripción, recorte de silencios, subida a YouTube y limpieza de archivos.
@@ -84,6 +85,9 @@ cp config.example.json config.json
     "MYS": "Modelado y simulación",
     "COD": "Nombre de la materia"
   },
+  // Carpeta (dentro del vault) donde se guardan las notas de videos "otros":
+  // videos cuyo nombre no matchea ningún código de materia configurado.
+  "otros_dir": "Otros/Desgrabaciones",
 
   // Carpeta de salida para videos procesados (sin silencios)
   "processed_videos_path": "C:\\Users\\TU_USUARIO\\Videos\\Post_auto-editor",
@@ -99,7 +103,11 @@ cp config.example.json config.json
     "AA2": "",
     "MYS": "PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "COD": ""
-  }
+  },
+
+  // ID de playlist para videos "otros" (los que no matchean ninguna materia).
+  // Dejar vacío ("") si no querés asignarlos a ninguna playlist.
+  "otros_playlist": ""
 }
 ```
 
@@ -126,6 +134,14 @@ Cada materia se identifica con un código de 2 a 4 letras (ej: `AA2`, `MYS`, `GD
 - Calcular el número de clase automáticamente
 
 Agregá tantas materias como necesites en el campo `materias`. Si una materia no tiene playlist de YouTube, dejá el valor vacío (`""`).
+
+### Videos "otros"
+
+Si un video no matchea ningún código de materia configurado, se procesa como "otro": se renombra a `YYYY-MM-DD_N_<nombre_original>.ext` (si no tiene fecha en el nombre, se usa la fecha de modificación del archivo), se transcribe, y se genera la nota en `otros_dir` dentro del vault. Si `otros_playlist` está configurado, se sube a esa playlist en YouTube.
+
+Útil para reuniones, tutorías, consultas, videos de YT o cualquier grabación suelta que no sea una clase.
+
+---
 
 ## Convención de nombres de video
 
@@ -207,6 +223,7 @@ También funciona desde el pipeline completo — se propaga solo a `pc`:
 
 ```
 clases -l es        # fuerza español en la transcripción
+clases -lang es     # equivalente usando el alias largo
 clases -y -l es     # sin confirmación + idioma forzado
 ```
 
@@ -303,6 +320,7 @@ Set-Alias -Name lc -Value LimpiarClases
 function ProcesarClasesCompleto {
     param(
         [switch]$y,
+        [Alias("lang")]
         [string]$l
     )
     $flags = @()

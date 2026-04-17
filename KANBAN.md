@@ -15,8 +15,8 @@
 - **Idioma configurable por video** — el flag `-l` que se pasa a WhisperX para la transcripción debe propagarse también a `subir_clases.py` para setear `defaultLanguage` en YouTube. Como WhisperX usa códigos cortos (`es`, `en`, `it`) y YouTube usa BCP-47, hace falta un mapeo interno: español → `es-419`, inglés → `en`, y los idiomas comunes (italiano, portugués, francés, alemán, ruso, chino, japonés, etc.) → su BCP-47 correspondiente. Si no se pasa `-l`, se usa `es-419` como default. Implica propagar el flag por todo el pipeline (`pc → sc`) y desde `ProcesarClasesCompleto` en PowerShell.
 
 
-### Videos misceláneos (todos los scripts)
-- **Eliminar código `OTR`** — es un comodín artificial que obliga a renombrar manualmente videos misceláneos con la convención `YYYY-MM-DD_OTR.mkv`. Si el nombre del archivo no matchea ningún código conocido, procesarlo como misceláneo usando el nombre original como título (nota en Obsidian y video en YouTube). Si el nombre no incluye fecha `YYYY-MM-DD`, usar la fecha de modificación del archivo. Eliminar `OTR` de `config.json` y de toda la lógica interna.
+### Videos "otros" (todos los scripts)
+- **Fuzzy matching de códigos mal tipeados** — cuando un video cae en "otros" porque su código no matchea ninguno del config, chequear similitud con códigos conocidos (ej: `AA3` vs `AA2`) y avisar al usuario antes de procesarlo como "otro". No implementar aún, solo anotado para más adelante.
 
 ### README.md
 - **Documentar setup de YouTube** — agregar sección explicando cómo configurar la autenticación OAuth (crear proyecto en Google Cloud Console, descargar `client_secret.json`, primera ejecución que abre el navegador) y cómo funcionan las playlists en `config.json`.
@@ -50,3 +50,6 @@ _(nada en curso)_
 ### `subir_clases.py`
 - **Subida a YouTube** — nuevo script que toma los videos de `processed_videos_path` y los sube via YouTube Data API v3.
 - **Idioma del video (`es-419`)** — agregado `defaultLanguage: "es-419"` al snippet de la subida para que YouTube lo detecte como Español (Latinoamérica) automáticamente.
+
+### Videos "otros" (todos los scripts)
+- **Eliminar código `OTR`** — los 4 scripts (`procesar_clases`, `quitar_silencios`, `subir_clases`, `limpiar_clases`) ahora detectan y procesan videos "otros" por nombre original, sin necesidad del código comodín `OTR`.
