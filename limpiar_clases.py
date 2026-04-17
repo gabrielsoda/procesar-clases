@@ -4,10 +4,10 @@ Borrar el mp4 + el .uploaded + el original en videos_dir
 Preview interactivo antes de borrar
 """
 
-from pathlib import Path
+import json
 import re
 import sys
-import json
+from pathlib import Path
 
 # constantes
 CONFIG_PATH = Path(__file__).parent / "config.json"
@@ -90,10 +90,11 @@ def detectar_limpiables(
     limpiables.sort(key=lambda x: (x["fecha"], x.get("codigo") or ""))
     return limpiables
 
+
 # preview interactivo
 def mostrar_preview_y_seleccionar(
-        limpiables: list[dict],
-        config: dict,
+    limpiables: list[dict],
+    config: dict,
 ) -> list[dict] | None:
     """
     Muestra los videos limpiables, permite elegir cuáles
@@ -118,11 +119,13 @@ def mostrar_preview_y_seleccionar(
         print()
     print("    Saltar eliminación en alguno?")
     try:
-        resp = input("    Números separados por coma (Enter para eliminar todos): ").strip()
+        resp = input(
+            "    Números separados por coma (Enter para eliminar todos): "
+        ).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return None
-    
+
     skip_indices = set()
     if resp:
         for parte in resp.split(","):
@@ -147,7 +150,11 @@ def mostrar_preview_y_seleccionar(
         print(f"    {i}. {titulo:50s} -> {accion}")
     print()
     try:
-        resp = input("    Está todo correcto?\n    Procedemos con la eliminación? [y/N]: ").strip().lower()
+        resp = (
+            input("    Está todo correcto?\n    Procedemos con la eliminación? [y/N]: ")
+            .strip()
+            .lower()
+        )
     except (EOFError, KeyboardInterrupt):
         print()
         return None
@@ -155,16 +162,18 @@ def mostrar_preview_y_seleccionar(
         return None
     return limpiables
 
+
 def eliminar_archivos(
-        limpiables: list,
+    limpiables: list,
 ) -> None:
     eliminados = 0
     for limpiable in limpiables:
-
         if not limpiable["eliminar"]:
             continue
         # borrar .uploaded
-        uploaded = limpiable["archivo"].parent / (limpiable["archivo"].name + ".uploaded")
+        uploaded = limpiable["archivo"].parent / (
+            limpiable["archivo"].name + ".uploaded"
+        )
         uploaded.unlink()
 
         # borrar originales (principal + partes si existen)
@@ -177,15 +186,16 @@ def eliminar_archivos(
         print(f"    ELIMINADO: {limpiable['archivo'].name}")
 
         eliminados += 1
-        
+
     print()
     if eliminados == 1:
         print(f"Listo. {eliminados} grupo eliminado.")
     else:
         print(f"Listo. {eliminados} grupos eliminados")
-    
+
+
 def procesar(
-        config: dict,
+    config: dict,
 ) -> None:
     processed_dir = Path(config["processed_videos_path"])
     videos_dir = Path(config["videos_dir"])
@@ -197,18 +207,15 @@ def procesar(
         print("No hay videos de clases ya procesadas pendientes de eliminar.")
         print(f"(Criterio: en {processed_dir}, con .mp4.uploaded)")
         return
-    
+
     limpiables = mostrar_preview_y_seleccionar(limpiables, config)
     if limpiables is None:
         print("Abortado.")
         return
     eliminar_archivos(limpiables)
-    
-
 
 
 # Entrypoint
 if __name__ == "__main__":
-
     config = cargar_config()
     procesar(config)

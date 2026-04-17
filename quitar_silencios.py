@@ -560,7 +560,7 @@ def procesar(config: dict, auto_yes: bool = False):
         if g["codigo"] is not None:
             nombre_materia = materias.get(g["codigo"], g["codigo"])
         else:
-            nombre_materia = g["nombre_original"]        
+            nombre_materia = g["nombre_original"]
         print(f"-- {nombre_materia} — {g['clave']} --")
         accion = g["accion"]
 

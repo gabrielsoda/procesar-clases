@@ -268,7 +268,9 @@ def mostrar_preview_y_seleccionar(
 
 
 # subida de video
-def subir_video(youtube, video_path: Path, titulo: str, lang: str | None = "es-419") -> str | None:
+def subir_video(
+    youtube, video_path: Path, titulo: str, lang: str | None = "es-419"
+) -> str | None:
     """
     Sube un video a Youtube
     Usa resumable upload con reintentos y exponential backoff.

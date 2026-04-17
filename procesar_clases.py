@@ -610,7 +610,7 @@ def procesar(config: dict, auto_yes: bool = False, lang: str | None = None):
     if otros and not otros_dir:
         print(
             f"[AVISO] Hay {len(otros)} video(s) que no matchean códigos conocidos de clases, "
-              "pero 'otros_dir' no está configurado en config.json. Se omiten."
+            "pero 'otros_dir' no está configurado en config.json. Se omiten."
         )
         otros = []
 
