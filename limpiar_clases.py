@@ -14,6 +14,9 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 VIDEO_PROCESADO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})\.\w+$", re.IGNORECASE
 )
+VIDEO_OTRO = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.\w+$",
+)
 
 
 # configuracion
@@ -41,37 +44,52 @@ def detectar_limpiables(
     for archivo in processed_dir.iterdir():
         if not archivo.is_file():
             continue
-        m = VIDEO_PROCESADO.match(archivo.name)
-        if not m:
-            continue
 
         uploaded_marker = archivo.parent / (archivo.name + ".uploaded")
         if not uploaded_marker.exists():
             continue
 
-        fecha, num_str, codigo = m.groups()
-
-        if codigo.upper() not in codigos_validos:
+        m = VIDEO_PROCESADO.match(archivo.name)
+        if m:
+            fecha, num_str, codigo = m.groups()
+            if codigo.upper() not in codigos_validos:
+                continue
+            nombre_base = f"{fecha}_{num_str}{codigo}"
+            originales = [
+                f for f in videos_dir.glob(f"{nombre_base}.*") if f.suffix != ".txt"
+            ]
+            original = originales[0] if originales else None
+            limpiables.append(
+                {
+                    "archivo": archivo,
+                    "original": original,
+                    "fecha": fecha,
+                    "num": int(num_str),
+                    "codigo": codigo,
+                }
+            )
             continue
 
-        nombre_base = f"{fecha}_{num_str}{codigo}"
+        m_otro = VIDEO_OTRO.match(archivo.name)
+        if m_otro:
+            fecha, num_str, nombre_original = m_otro.groups()
+            nombre_base = f"{fecha}_{num_str}_{nombre_original}"
+            originales = [
+                f for f in videos_dir.glob(f"{nombre_base}.*") if f.suffix != ".txt"
+            ]
+            original = originales[0] if originales else None
+            limpiables.append(
+                {
+                    "archivo": archivo,
+                    "original": original,
+                    "fecha": fecha,
+                    "num": int(num_str),
+                    "codigo": None,
+                    "nombre_original": nombre_original,
+                }
+            )
 
-        originales = [
-            f for f in videos_dir.glob(f"{nombre_base}.*") if f.suffix != ".txt"
-        ]
-        original = originales[0] if originales else None
-
-        limpiables.append(
-            {
-                "archivo": archivo,
-                "original": original,
-                "fecha": fecha,
-                "num": int(num_str),
-                "codigo": codigo,
-            }
-        )
-    limpiables.sort(key=lambda x: (x["fecha"], x["codigo"]))
-
+    limpiables.sort(key=lambda x: (x["fecha"], x.get("codigo") or ""))
     return limpiables
 
 # preview interactivo
@@ -88,7 +106,10 @@ def mostrar_preview_y_seleccionar(
     materias = config["materias"]
     print(f"\nCantidad de archivos a eliminar: {len(limpiables)}\n")
     for i, p in enumerate(limpiables, 1):
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
+        if p["codigo"] is not None:
+            nombre_materia = materias.get(p["codigo"], p["codigo"])
+        else:
+            nombre_materia = p["nombre_original"]
         original_info = p['original'].name if p['original'] else "no encontrado"
         print(f"  {i}. {p['archivo'].name}")
         print(f"       Original: {original_info}")
@@ -116,8 +137,11 @@ def mostrar_preview_y_seleccionar(
     print("    Plan de ejecución:")
     print()
     for i, p in enumerate(limpiables, 1):
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+        if p["codigo"] is not None:
+            nombre_materia = materias.get(p["codigo"], p["codigo"])
+            titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+        else:
+            titulo = f"{p['nombre_original']} ({p['fecha']})"
         accion = "eliminar" if p["eliminar"] else "saltar"
         print(f"    {i}. {titulo:50s} -> {accion}")
     print()
