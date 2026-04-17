@@ -39,6 +39,9 @@ VIDEO_PROCESADO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})\.\w+$",
     re.IGNORECASE,
 )
+VIDEO_OTRO = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.\w+$",
+)
 
 # configuracion
 def cargar_config() -> dict:
@@ -107,23 +110,36 @@ def detectar_pendientes(
     for archivo in processed_dir.iterdir():
         if not archivo.is_file():
             continue
-        m = VIDEO_PROCESADO.match(archivo.name)
-        if not m:
-            continue
-        fecha, num_str, codigo = m.groups()
-        codigo = codigo.upper()
-        if codigo not in codigos_validos:
-            continue
         uploaded_marker = archivo.parent / (archivo.name + ".uploaded")
         if uploaded_marker.exists():
             continue
-        pendientes.append({
-            "archivo": archivo,
-            "fecha": fecha,
-            "num": int(num_str),
-            "codigo": codigo,
-        })
-    pendientes.sort(key=lambda x: (x["fecha"], x["codigo"]))
+
+        m = VIDEO_PROCESADO.match(archivo.name)
+        if m:
+            fecha, num_str, codigo = m.groups()
+            codigo = codigo.upper()
+            if codigo not in codigos_validos:
+                continue
+            pendientes.append({
+                "archivo": archivo,
+                "fecha": fecha,
+                "num": int(num_str),
+                "codigo": codigo,
+            })
+            continue
+
+        m_otro = VIDEO_OTRO.match(archivo.name)
+        if m_otro:
+            fecha, num_str, nombre_original = m_otro.groups()
+            pendientes.append({
+                "archivo": archivo,
+                "fecha": fecha,
+                "num": int(num_str),
+                "codigo": None,
+                "nombre_original": nombre_original,
+            })
+
+    pendientes.sort(key=lambda x: (x["fecha"], x.get("codigo") or ""))
     return pendientes
 
 
@@ -141,11 +157,16 @@ def mostrar_preview_y_seleccionar(
 
     materias = config["materias"]
     playlists = config.get("youtube_playlists", {})
+    otros_playlist = config.get("otros_playlist", "")
     print(f"\nCantidad de videos pendientes de subir: {len(pendientes)}\n")
     for i, p in enumerate(pendientes, 1):
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
-        playlist_id = playlists.get(p["codigo"], "")
+        if p["codigo"] is not None:
+            nombre_materia = materias.get(p["codigo"], p["codigo"])
+            titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+            playlist_id = playlists.get(p["codigo"], "")
+        else:
+            titulo = f"{p['nombre_original']} ({p['fecha']})"
+            playlist_id = otros_playlist
         playlist_info = "sí" if playlist_id else "no configurada"
         print(f"  {i}. {p['archivo'].name}")
         print(f"       Título: {titulo}")
@@ -176,8 +197,11 @@ def mostrar_preview_y_seleccionar(
     print("    Plan de ejecución:")
     print()
     for i, p in enumerate(pendientes, 1):
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+        if p["codigo"] is not None:
+            nombre_materia = materias.get(p["codigo"], p["codigo"])
+            titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+        else:
+            titulo = f"{p['nombre_original']} ({p['fecha']})"
         accion = "subir" if p["subir"] else "saltar"
         print(f"    {i}. {titulo:50s} -> {accion}")
     print()
@@ -281,6 +305,7 @@ def procesar(config: dict, auto_yes: bool = False):
     processed_dir = Path(config["processed_videos_path"])
     materias = config["materias"]
     playlists = config.get("youtube_playlists", {})
+    otros_playlist = config.get("otros_playlist", "")
     codigos_validos = set(materias.keys())
     if not processed_dir.exists():
         print(f"[ERROR] Carpeta de videos no encontrada: {processed_dir}")
@@ -302,8 +327,13 @@ def procesar(config: dict, auto_yes: bool = False):
         if not p["subir"]:
             continue
         archivo = p["archivo"]
-        nombre_materia = materias.get(p["codigo"], p["codigo"])
-        titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+        if p["codigo"] is not None:
+            nombre_materia = materias.get(p["codigo"], p["codigo"])
+            titulo = f"{nombre_materia} - Clase {p['num']} ({p['fecha']})"
+            playlist_id = playlists.get(p["codigo"], "")
+        else:
+            titulo = f"{p['nombre_original']} ({p['fecha']})"
+            playlist_id = otros_playlist
         print(f"-- {titulo} --")
         # subir video
         video_id = subir_video(youtube, archivo, titulo)
@@ -313,7 +343,6 @@ def procesar(config: dict, auto_yes: bool = False):
             print()
             continue
         # agregar a playlist si está configurada
-        playlist_id = playlists.get(p["codigo"], "")
         if playlist_id:
             agregar_a_playlist(youtube, video_id, playlist_id)
         # crear marker de subido
