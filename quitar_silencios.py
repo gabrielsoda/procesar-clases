@@ -38,6 +38,9 @@ VIDEO_PARTE = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)([A-Z0-9]{2,4})_p(\d+)\.\w+$",
     re.IGNORECASE,
 )
+VIDEO_OTRO = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.\w+$",
+)
 
 
 # configuracion
@@ -117,35 +120,70 @@ def detectar_pendientes(
     for ext in extensiones:
         for archivo in videos_dir.glob(f"*.{ext}"):
             m = VIDEO_PROCESADO.match(archivo.name)
-            if not m:
-                m = VIDEO_PARTE.match(archivo.name)
-                if not m:
+            if m:
+                m_parte = VIDEO_PARTE.match(archivo.name)
+                if m_parte:
+                    fecha, num_str, codigo, num_parte = m_parte.groups()
+                    codigo = codigo.upper()
+                    if codigo not in codigos_validos:
+                        continue
+                    clave = f"{fecha}_{num_str}{codigo}"
+                    ya_procesado = any(processed_dir.glob(f"{clave}.*"))
+                    if ya_procesado:
+                        continue
+                    pendientes.append(
+                        {
+                            "archivo": archivo,
+                            "fecha": fecha,
+                            "num": int(num_str),
+                            "codigo": codigo,
+                            "num_parte": int(num_parte),
+                            "es_audio": not tiene_video(archivo),
+                        }
+                    )
+                else:
+                    fecha, num_str, codigo = m.groups()
+                    codigo = codigo.upper()
+                    if codigo not in codigos_validos:
+                        continue
+                    clave = f"{fecha}_{num_str}{codigo}"
+                    ya_procesado = any(processed_dir.glob(f"{clave}.*"))
+                    if ya_procesado:
+                        continue
+                    pendientes.append(
+                        {
+                            "archivo": archivo,
+                            "fecha": fecha,
+                            "num": int(num_str),
+                            "codigo": codigo,
+                            "num_parte": None,
+                            "es_audio": not tiene_video(archivo),
+                        }
+                    )
+                continue
+
+            # ¿Es un video "otro"?
+            m_otro = VIDEO_OTRO.match(archivo.name)
+            if m_otro:
+                fecha, num_str, nombre_original = m_otro.groups()
+                clave = f"{fecha}_{num_str}_{nombre_original}"
+                ya_procesado = any(processed_dir.glob(f"{clave}.*"))
+                if ya_procesado:
                     continue
-            grupos = m.groups()
-            if len(grupos) == 3:
-                fecha, num_str, codigo = grupos
-                num_parte = None
-            else:
-                fecha, num_str, codigo, num_parte = grupos
-                num_parte = int(num_parte)
-            codigo = codigo.upper()
-            if codigo not in codigos_validos:
-                continue
-            clave = f"{fecha}_{num_str}{codigo}"
-            ya_procesado = any(processed_dir.glob(f"{clave}.*"))
-            if ya_procesado:
-                continue
-            pendientes.append(
-                {
-                    "archivo": archivo,
-                    "fecha": fecha,
-                    "num": int(num_str),
-                    "codigo": codigo,
-                    "num_parte": num_parte,
-                    "es_audio": not tiene_video(archivo),
-                }
-            )
-    pendientes.sort(key=lambda x: (x["fecha"], x["codigo"], x["num_parte"] or 0))
+                pendientes.append(
+                    {
+                        "archivo": archivo,
+                        "fecha": fecha,
+                        "num": int(num_str),
+                        "codigo": None,
+                        "nombre_original": nombre_original,
+                        "num_parte": None,
+                        "es_audio": not tiene_video(archivo),
+                    }
+                )
+    pendientes.sort(
+        key=lambda x: (x["fecha"], x.get("codigo") or "", x["num_parte"] or 0)
+    )
     return pendientes
 
 
@@ -158,13 +196,17 @@ def agrupar_partes_pendientes(pendientes: list[dict]) -> list[dict]:
     """
     grupos_dict = {}
     for p in pendientes:
-        clave = f"{p['fecha']}_{p['num']}{p['codigo']}"
+        if p["codigo"] is None:
+            clave = f"{p['fecha']}_{p['num']}_{p['nombre_original']}"
+        else:
+            clave = f"{p['fecha']}_{p['num']}{p['codigo']}"
         if clave not in grupos_dict:
             grupos_dict[clave] = {
                 "clave": clave,
                 "fecha": p["fecha"],
                 "num": p["num"],
                 "codigo": p["codigo"],
+                "nombre_original": p.get("nombre_original"),
                 "archivos": [],
             }
         grupos_dict[clave]["archivos"].append(
@@ -178,7 +220,7 @@ def agrupar_partes_pendientes(pendientes: list[dict]) -> list[dict]:
     for g in grupos:
         g["archivos"].sort(key=lambda a: a["num_parte"] or 0)
         g["es_multipart"] = len(g["archivos"]) > 1
-    grupos.sort(key=lambda g: (g["fecha"], g["codigo"]))
+    grupos.sort(key=lambda g: (g["fecha"], g["codigo"] or ""))
     return grupos
 
 
@@ -260,11 +302,13 @@ def mostrar_preview_y_seleccionar(
     print(f"\nArchivos pendientes a procesar: {len(grupos)}\n")
 
     for i, g in enumerate(grupos, 1):
-        nombre_materia = materias.get(g["codigo"], g["codigo"])
         principal = g["archivos"][0]["archivo"].name
         tiene_audio = any(a["es_audio"] for a in g["archivos"])
         tipo = "AUDIO" if tiene_audio else "VIDEO"
-
+        if g["codigo"] is not None:
+            nombre_materia = materias.get(g["codigo"], g["codigo"])
+        else:
+            nombre_materia = g["nombre_original"]
         if g["es_multipart"]:
             partes_extra = ", ".join(a["archivo"].name for a in g["archivos"][1:])
             print(f"  {i}. {principal}  (+ {partes_extra})")
@@ -510,10 +554,13 @@ def procesar(config: dict, auto_yes: bool = False):
         return
     print()
     for g in grupos:
-        nombre_materia = materias.get(g["codigo"], g["codigo"])
         archivo_final = (
             processed_dir / f"{g['clave']}{g['archivos'][0]['archivo'].suffix}"
         )
+        if g["codigo"] is not None:
+            nombre_materia = materias.get(g["codigo"], g["codigo"])
+        else:
+            nombre_materia = g["nombre_original"]        
         print(f"-- {nombre_materia} — {g['clave']} --")
         accion = g["accion"]
 
