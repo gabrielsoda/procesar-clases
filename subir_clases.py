@@ -16,20 +16,19 @@ uso: uv run subir_clases.py     # Preview interactivo
 
 """
 
-from pathlib import Path
+import argparse
+import json
 import re
 import sys
-import json
 import time
-import argparse
+from pathlib import Path
+
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
-
-
+from googleapiclient.http import MediaFileUpload
 
 # constantes
 CONFIG_PATH = Path(__file__).parent / "config.json"
@@ -43,6 +42,7 @@ VIDEO_OTRO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.\w+$",
 )
 
+
 # configuracion
 def cargar_config() -> dict:
     if not CONFIG_PATH.exists():
@@ -50,6 +50,7 @@ def cargar_config() -> dict:
         sys.exit(1)
     with CONFIG_PATH.open(encoding="utf-8") as f:
         return json.load(f)
+
 
 # autenticación
 def autenticar_youtube(config: dict):
@@ -99,8 +100,8 @@ def autenticar_youtube(config: dict):
 
 # detección de pendientes
 def detectar_pendientes(
-        processed_dir: Path,
-        codigos_validos: set,
+    processed_dir: Path,
+    codigos_validos: set,
 ) -> list[dict]:
     """
     Busca videos en processed_dir sin .uploaded marker.
@@ -120,24 +121,28 @@ def detectar_pendientes(
             codigo = codigo.upper()
             if codigo not in codigos_validos:
                 continue
-            pendientes.append({
-                "archivo": archivo,
-                "fecha": fecha,
-                "num": int(num_str),
-                "codigo": codigo,
-            })
+            pendientes.append(
+                {
+                    "archivo": archivo,
+                    "fecha": fecha,
+                    "num": int(num_str),
+                    "codigo": codigo,
+                }
+            )
             continue
 
         m_otro = VIDEO_OTRO.match(archivo.name)
         if m_otro:
             fecha, num_str, nombre_original = m_otro.groups()
-            pendientes.append({
-                "archivo": archivo,
-                "fecha": fecha,
-                "num": int(num_str),
-                "codigo": None,
-                "nombre_original": nombre_original,
-            })
+            pendientes.append(
+                {
+                    "archivo": archivo,
+                    "fecha": fecha,
+                    "num": int(num_str),
+                    "codigo": None,
+                    "nombre_original": nombre_original,
+                }
+            )
 
     pendientes.sort(key=lambda x: (x["fecha"], x.get("codigo") or ""))
     return pendientes
@@ -145,9 +150,9 @@ def detectar_pendientes(
 
 # preview interactivo
 def mostrar_preview_y_seleccionar(
-        pendientes: list[dict],
-        config: dict,
-        auto_yes: bool,
+    pendientes: list[dict],
+    config: dict,
+    auto_yes: bool,
 ) -> list[dict] | None:
     """
     Muestra los videos pendientes de subir, permite elegir cuáles
@@ -178,7 +183,9 @@ def mostrar_preview_y_seleccionar(
     else:
         print("    Saltar subida en alguno?")
         try:
-            resp = input("    Números separados por coma (Enter para subir todos): ").strip()
+            resp = input(
+                "    Números separados por coma (Enter para subir todos): "
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
@@ -207,7 +214,11 @@ def mostrar_preview_y_seleccionar(
     print()
     if not auto_yes:
         try:
-            resp = input("    Está todo correcto?\n    Continuamos con la subida? [y/N]: ").strip().lower()
+            resp = (
+                input("    Está todo correcto?\n    Continuamos con la subida? [y/N]: ")
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
             print()
             return None
@@ -245,7 +256,7 @@ def subir_video(youtube, video_path: Path, titulo: str) -> str | None:
         body=body,
         media_body=media,
     )
-    print(f"    Subiendo video...")
+    print("    Subiendo video...")
     response = None
     intentos = 0
     max_intentos = 5
@@ -259,8 +270,10 @@ def subir_video(youtube, video_path: Path, titulo: str) -> str | None:
         except HttpError as e:
             if e.resp.status in [500, 502, 503, 504] and intentos < max_intentos:
                 intentos += 1
-                espera = 2 ** intentos
-                print(f"    Error del servidor, reintentando en {espera}s... (intento {intentos}/{max_intentos})")
+                espera = 2**intentos
+                print(
+                    f"    Error del servidor, reintentando en {espera}s... (intento {intentos}/{max_intentos})"
+                )
                 time.sleep(espera)
             else:
                 print(f"    [ERROR] Error al subir video: {e}")
@@ -297,7 +310,6 @@ def agregar_a_playlist(youtube, video_id: str, playlist_id: str) -> bool:
     except HttpError as e:
         print(f"    [ERROR] Error al agregar a playlist: {e}")
         return False
-
 
 
 # flujo principal
@@ -338,7 +350,7 @@ def procesar(config: dict, auto_yes: bool = False):
         # subir video
         video_id = subir_video(youtube, archivo, titulo)
         if not video_id:
-            print(f"    [SKIP] Error en la subida.")
+            print("    [SKIP] Error en la subida.")
             errores += 1
             print()
             continue
@@ -358,14 +370,14 @@ def procesar(config: dict, auto_yes: bool = False):
     print()
 
 
-
 # entrypoint
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Sube videos de clases procesados a YouTube.",
     )
     parser.add_argument(
-        "-y", "--yes",
+        "-y",
+        "--yes",
         action="store_true",
         help="Subir todos los archivos sin pedir confirmación",
     )
