@@ -17,14 +17,14 @@ Uso:
   uv run quitar_silencios.py -y       # ejecuta el recorte de todos sin pedir confirmacion
 """
 
-from pathlib import Path
-import re
-import sys
+import argparse
 import json
+import re
 import shutil
 import subprocess
+import sys
 import time
-import argparse
+from pathlib import Path
 
 # constantes
 # path al archivo de configuración (config.json)
@@ -39,6 +39,7 @@ VIDEO_PARTE = re.compile(
     re.IGNORECASE,
 )
 
+
 # configuracion
 def cargar_config() -> dict:
     if not CONFIG_PATH.exists():
@@ -46,38 +47,54 @@ def cargar_config() -> dict:
         sys.exit(1)
     with CONFIG_PATH.open(encoding="utf-8") as f:
         return json.load(f)
-    
+
+
 # utilidad: detección de tipo de archivo
 def tiene_video(file_path: Path) -> bool:
     """Detecta si el archivo tiene al menos un stream de video con ffprobe"""
     cmd = [
         "ffprobe",
-        "-v", "error",
-        "-select_streams", "v",
-        "-show_entries", "stream=codec_type",
-        "-of", "csv=p=0",
+        "-v",
+        "error",
+        "-select_streams",
+        "v",
+        "-show_entries",
+        "stream=codec_type",
+        "-of",
+        "csv=p=0",
         str(file_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return "video" in result.stdout
+
 
 # Obtener codecs, se utiliza para no re-encodear si no es neceario
 def obtener_codecs(file_path: Path) -> tuple[str, str]:
     """Devuelve (codec_video, codec_audio) del archivo"""
     # codec de video
     cmd_v = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=codec_name",
-        "-of", "csv=p=0",
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "csv=p=0",
         str(file_path),
     ]
     # codec de audio
     cmd_a = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "a:0",
-        "-show_entries", "stream=codec_name",
-        "-of", "csv=p=0",
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "csv=p=0",
         str(file_path),
     ]
     video = subprocess.run(cmd_v, capture_output=True, text=True).stdout.strip()
@@ -87,10 +104,10 @@ def obtener_codecs(file_path: Path) -> tuple[str, str]:
 
 # Detección de archivos pendientes
 def detectar_pendientes(
-        videos_dir: Path,
-        processed_dir: Path,
-        codigos_validos: set,
-        extensiones: list,
+    videos_dir: Path,
+    processed_dir: Path,
+    codigos_validos: set,
+    extensiones: list,
 ) -> list[dict]:
     """
     Busca videos sin .mp4 ya procesado en processed_dir.
@@ -118,24 +135,27 @@ def detectar_pendientes(
             ya_procesado = any(processed_dir.glob(f"{clave}.*"))
             if ya_procesado:
                 continue
-            pendientes.append({
-                "archivo": archivo,
-                "fecha": fecha,
-                "num": int(num_str),
-                "codigo": codigo,
-                "num_parte": num_parte,
-                "es_audio": not tiene_video(archivo),
-            })
+            pendientes.append(
+                {
+                    "archivo": archivo,
+                    "fecha": fecha,
+                    "num": int(num_str),
+                    "codigo": codigo,
+                    "num_parte": num_parte,
+                    "es_audio": not tiene_video(archivo),
+                }
+            )
     pendientes.sort(key=lambda x: (x["fecha"], x["codigo"], x["num_parte"] or 0))
     return pendientes
 
+
 # agrupación de partes
-def agrupar_partes_pendientes(pendientes:list[dict]) -> list[dict]:
+def agrupar_partes_pendientes(pendientes: list[dict]) -> list[dict]:
     """
     Agrupa archivos que comparten YYYY-MM-DD_NCOD en un solo grupo siendo
-    el principal sin _pN y sus partes con _pN. Devuelve lista de grupos 
+    el principal sin _pN y sus partes con _pN. Devuelve lista de grupos
     ordenados por fecha y código
-    """ 
+    """
     grupos_dict = {}
     for p in pendientes:
         clave = f"{p['fecha']}_{p['num']}{p['codigo']}"
@@ -144,14 +164,16 @@ def agrupar_partes_pendientes(pendientes:list[dict]) -> list[dict]:
                 "clave": clave,
                 "fecha": p["fecha"],
                 "num": p["num"],
-                "codigo":p["codigo"],
+                "codigo": p["codigo"],
                 "archivos": [],
             }
-        grupos_dict[clave]["archivos"].append({
-            "archivo": p["archivo"],
-            "num_parte": p["num_parte"],
-            "es_audio": p["es_audio"],
-        })
+        grupos_dict[clave]["archivos"].append(
+            {
+                "archivo": p["archivo"],
+                "num_parte": p["num_parte"],
+                "es_audio": p["es_audio"],
+            }
+        )
     grupos = list(grupos_dict.values())
     for g in grupos:
         g["archivos"].sort(key=lambda a: a["num_parte"] or 0)
@@ -169,24 +191,33 @@ def convertir_audio_a_video(audio_path: Path, output_path: Path) -> bool:
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", "color=c=black:s=1280x720:r=1",
-        "-i", str(audio_path),
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=1280x720:r=1",
+        "-i",
+        str(audio_path),
         "-shortest",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "51",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "51",
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
         str(output_path),
     ]
-    print(f"    Convirtiendo audio a video con fondo negro...")
+    print("    Convirtiendo audio a video con fondo negro...")
     t0 = time.time()
     result = subprocess.run(cmd, capture_output=True, text=True)
     tiempo = time.time() - t0
     if result.returncode != 0:
-        print(f"    [ERROR] Sucedió un error al convertir audio:")
+        print("    [ERROR] Sucedió un error al convertir audio:")
         print(result.stderr[-800:] if result.stderr else "(sin output)")
         return False
     tamanio = output_path.stat().st_size / (1024 * 1024)
@@ -197,7 +228,7 @@ def convertir_audio_a_video(audio_path: Path, output_path: Path) -> bool:
 def copiar_sin_recortar(input_path: Path, output_path: Path) -> bool:
     """Copia el archivo a processed_dir sin modificar. Devuelve True si fue exitoso."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"    Copiando sin recortar...")
+    print("    Copiando sin recortar...")
     try:
         shutil.copy2(str(input_path), str(output_path))
     except OSError as e:
@@ -210,9 +241,9 @@ def copiar_sin_recortar(input_path: Path, output_path: Path) -> bool:
 
 # Preview interactivo
 def mostrar_preview_y_seleccionar(
-        grupos: list[dict],
-        config: dict,
-        auto_yes: bool,
+    grupos: list[dict],
+    config: dict,
+    auto_yes: bool,
 ) -> list[dict] | None:
     """
     Muestra los archivos pendientes con acción por defecto,
@@ -248,7 +279,9 @@ def mostrar_preview_y_seleccionar(
     if not auto_yes:
         print("  ¿Cambiar acción en alguno?")
         try:
-            resp = input("  Números separados por coma (Enter para continuar): ").strip()
+            resp = input(
+                "  Números separados por coma (Enter para continuar): "
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
@@ -269,11 +302,15 @@ def mostrar_preview_y_seleccionar(
                 print()
                 if tiene_audio:
                     print(f"  {idx}. {nombre} [AUDIO]:")
-                    print(f"     a) convertir + recortar   b) copiar sin recortar   c) saltear")
+                    print(
+                        "     a) convertir + recortar   b) copiar sin recortar   c) saltear"
+                    )
                     default = "b"
                 else:
                     print(f"  {idx}. {nombre} [VIDEO]:")
-                    print(f"     a) recortar silencios   b) copiar sin recortar   c) saltear")
+                    print(
+                        "     a) recortar silencios   b) copiar sin recortar   c) saltear"
+                    )
                     default = "a"
 
                 try:
@@ -283,7 +320,11 @@ def mostrar_preview_y_seleccionar(
                     return None
 
                 if tiene_audio:
-                    opciones = {"a": "convertir_recortar", "b": "copiar", "c": "saltear"}
+                    opciones = {
+                        "a": "convertir_recortar",
+                        "b": "copiar",
+                        "c": "saltear",
+                    }
                 else:
                     opciones = {"a": "recortar", "b": "copiar", "c": "saltear"}
                 g["accion"] = opciones.get(eleccion, opciones[default])
@@ -325,12 +366,14 @@ def _texto_accion(g: dict) -> str:
     }
     return textos.get(accion, str(accion)) + sufijo
 
+
 # recorte de silencios con auto-editor
 
+
 def recortar_silencios(
-        video_path: Path,
-        output_path: Path,
-        config: dict,
+    video_path: Path,
+    output_path: Path,
+    config: dict,
 ) -> bool:
     """
     Recorta los silencios del video usando auto-editor
@@ -343,20 +386,24 @@ def recortar_silencios(
     )
 
     if not auto_editor_exe.exists():
-        print(f"    [ERROR] No se encontró el ejecutable de auto-editor en: {auto_editor_exe}. \n    Revisar si config.json es correcto")
+        print(
+            f"    [ERROR] No se encontró el ejecutable de auto-editor en: {auto_editor_exe}. \n    Revisar si config.json es correcto"
+        )
         return False
-    
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         str(auto_editor_exe),
         str(video_path),
-        "--margin", "0s",
+        "--margin",
+        "0s",
         "--no-open",
-        "-o", str(output_path),
+        "-o",
+        str(output_path),
     ]
 
-    print(f"    Recortando silencios...")
+    print("    Recortando silencios...")
     t0 = time.time()
     result = subprocess.run(cmd)
     tiempo = time.time() - t0
@@ -364,16 +411,14 @@ def recortar_silencios(
     if result.returncode != 0:
         print(f"    [ERROR] auto-editor falló ({result.returncode}):")
         return False
-    
+
     if not output_path.exists():
-        print(f"    [ERROR] auto-editor no generó el archivo de salida")
+        print("    [ERROR] auto-editor no generó el archivo de salida")
         return False
-    
+
     tamanio = output_path.stat().st_size / (1024 * 1024)
     print(f"    Recorte completado en {tiempo:.1f}s — {tamanio:.1f} MB")
-    return True    
-
-
+    return True
 
 
 # Concatenación de partes
@@ -388,20 +433,25 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
     stream_copy = len(set(codecs)) == 1
     lista_path: Path | None = None
     if stream_copy:
-        print(f"    Mismos codecs, concatenando sin re-encode...")
+        print("    Mismos codecs, concatenando sin re-encode...")
         lista_path = output.with_suffix(".txt")
         contenido = "\n".join(f"file '{p}'" for p in partes)
         lista_path.write_text(contenido, encoding="utf-8")
         cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(lista_path),
-            "-c", "copy",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(lista_path),
+            "-c",
+            "copy",
             str(output),
         ]
     else:
-        print(f"    Codecs distintos detectados, concatenando con re-encode...")
+        print("    Codecs distintos detectados, concatenando con re-encode...")
         # concat filter
         cmd = ["ffmpeg", "-y"]
         for p in partes:
@@ -410,9 +460,12 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
         filtro = "".join(f"[{i}:v][{i}:a]" for i in range(n))
         filtro += f"concat=n={n}:v=1:a=1[v][a]"
         cmd += [
-            "-filter_complex", filtro,
-            "-map", "[v]",
-            "-map", "[a]",
+            "-filter_complex",
+            filtro,
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
             str(output),
         ]
     print(f"    Concatenando {len(partes)} partes...")
@@ -423,7 +476,7 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
     if lista_path is not None:
         lista_path.unlink(missing_ok=True)
     if result.returncode != 0:
-        print(f"    [ERROR] Error al concatenar:")
+        print("    [ERROR] Error al concatenar:")
         print(result.stderr[-800:] if result.stderr else "(sin output)")
         return False
     tamanio = output.stat().st_size / (1024 * 1024)
@@ -431,8 +484,8 @@ def concatenar_partes(partes: list[Path], output: Path) -> bool:
     return True
 
 
-
 # flujo principal
+
 
 def procesar(config: dict, auto_yes: bool = False):
     videos_dir = Path(config["videos_dir"])
@@ -458,13 +511,15 @@ def procesar(config: dict, auto_yes: bool = False):
     print()
     for g in grupos:
         nombre_materia = materias.get(g["codigo"], g["codigo"])
-        archivo_final = processed_dir / f"{g['clave']}{g['archivos'][0]['archivo'].suffix}"
+        archivo_final = (
+            processed_dir / f"{g['clave']}{g['archivos'][0]['archivo'].suffix}"
+        )
         print(f"-- {nombre_materia} — {g['clave']} --")
         accion = g["accion"]
 
         # saltear
         if accion == "saltear":
-            print(f"    Salteado.")
+            print("    Salteado.")
             print()
             continue
 
@@ -479,14 +534,14 @@ def procesar(config: dict, auto_yes: bool = False):
                 else:
                     ok = copiar_sin_recortar(archivo, archivo_final)
                 if not ok:
-                    print(f"    [SKIP] Error al copiar.")
+                    print("    [SKIP] Error al copiar.")
                 print()
                 continue
 
             if accion == "recortar":
                 ok = recortar_silencios(archivo, archivo_final, config)
                 if not ok:
-                    print(f"    [SKIP] Error en el recorte.")
+                    print("    [SKIP] Error en el recorte.")
                 print()
                 continue
 
@@ -494,13 +549,13 @@ def procesar(config: dict, auto_yes: bool = False):
                 temp_video = processed_dir / f"{g['clave']}_temp.mp4"
                 ok = convertir_audio_a_video(archivo, temp_video)
                 if not ok:
-                    print(f"    [SKIP] Error en la conversión.")
+                    print("    [SKIP] Error en la conversión.")
                     print()
                     continue
                 ok = recortar_silencios(temp_video, archivo_final, config)
                 temp_video.unlink(missing_ok=True)
                 if not ok:
-                    print(f"    [SKIP] Error en el recorte.")
+                    print("    [SKIP] Error en el recorte.")
                 print()
                 continue
 
@@ -545,7 +600,7 @@ def procesar(config: dict, auto_yes: bool = False):
         if not error:
             ok = concatenar_partes(partes_procesadas, archivo_final)
             if not ok:
-                print(f"    [SKIP] Error al concatenar.")
+                print("    [SKIP] Error al concatenar.")
         # limpiar temporales
         for temp in partes_procesadas:
             if temp.parent == processed_dir:
@@ -554,14 +609,14 @@ def procesar(config: dict, auto_yes: bool = False):
     print("Listo.")
 
 
-
 # Entrypoint
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Recorta silencios de videos de clases con auto-editor.",
     )
     parser.add_argument(
-        "-y", "--yes",
+        "-y",
+        "--yes",
         action="store_true",
         help="Recortar todos los archivos sin pedir confirmación",
     )
