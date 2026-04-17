@@ -36,7 +36,7 @@
 
 ### limpiar_clases.py
 
-- [ ] **Borrar partes al limpiar**: cuando se limpia un video multipart
+- [x] **Borrar partes al limpiar**: cuando se limpia un video multipart
       (ej: `2026-03-31_4GDP.mp4`), también borrar los archivos `_p2`, `_p3`, etc.
       del `videos_dir`. Actualmente solo borra el original principal, dejando las
       partes huérfanas que `qs` vuelve a detectar como pendientes.
@@ -89,6 +89,15 @@
       fecha en formato `YYYY-MM-DD`, usar la fecha de modificación del archivo como
       metadato y como prefijo del renombrado. Eliminar `OTR` de `config.json` y de toda
       la lógica interna.
+
+- [ ] **Soporte multipart para "otros"**: actualmente los videos "otros" solo se
+      procesan como archivo único. Agregar soporte para partes (`_p2`, `_p3`, etc.)
+      con el mismo nombre original, de forma que `2026-05-16_explicación_unit_testing.mkv`
+      y `2026-05-16_explicación_unit_testing_p2.mkv` se detecten como un grupo, se
+      transcriban/recorten por separado y se concatenen en un único archivo final.
+      Implica cambios en `procesar_clases.py` (detección y agrupación de partes "otros"),
+      `quitar_silencios.py` (ya agrupa partes pero solo para clases) y posiblemente
+      en el renombrado (insertar N sin romper el nombre original).
 
 - [ ] **Fuzzy matching de códigos mal tipeados**: cuando un video cae en la categoría
       "otros" porque su código no matchea ninguno del `config.json`, chequear si el nombre

@@ -56,13 +56,12 @@ def detectar_limpiables(
                 continue
             nombre_base = f"{fecha}_{num_str}{codigo}"
             originales = [
-                f for f in videos_dir.glob(f"{nombre_base}.*") if f.suffix != ".txt"
+                f for f in videos_dir.glob(f"{nombre_base}*") if f.suffix != ".txt"
             ]
-            original = originales[0] if originales else None
             limpiables.append(
                 {
                     "archivo": archivo,
-                    "original": original,
+                    "originales": originales,
                     "fecha": fecha,
                     "num": int(num_str),
                     "codigo": codigo,
@@ -77,11 +76,10 @@ def detectar_limpiables(
             originales = [
                 f for f in videos_dir.glob(f"{nombre_base}.*") if f.suffix != ".txt"
             ]
-            original = originales[0] if originales else None
             limpiables.append(
                 {
                     "archivo": archivo,
-                    "original": original,
+                    "originales": originales,
                     "fecha": fecha,
                     "num": int(num_str),
                     "codigo": None,
@@ -110,7 +108,10 @@ def mostrar_preview_y_seleccionar(
             nombre_materia = materias.get(p["codigo"], p["codigo"])
         else:
             nombre_materia = p["nombre_original"]
-        original_info = p['original'].name if p['original'] else "no encontrado"
+        if p["originales"]:
+            original_info = ", ".join(f.name for f in p["originales"])
+        else:
+            original_info = "no encontrado"
         print(f"  {i}. {p['archivo'].name}")
         print(f"       Original: {original_info}")
         print(f"       Materia: {nombre_materia}")
@@ -166,10 +167,10 @@ def eliminar_archivos(
         uploaded = limpiable["archivo"].parent / (limpiable["archivo"].name + ".uploaded")
         uploaded.unlink()
 
-        # borrar original (si existe)
-        if limpiable["original"]:
-            limpiable["original"].unlink()
-            print(f"    ELIMINADO: {limpiable['original'].name}")
+        # borrar originales (principal + partes si existen)
+        for original in limpiable["originales"]:
+            original.unlink()
+            print(f"    ELIMINADO: {original.name}")
 
         # borrar .mp4
         limpiable["archivo"].unlink()
