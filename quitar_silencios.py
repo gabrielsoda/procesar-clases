@@ -373,6 +373,18 @@ def mostrar_preview_y_seleccionar(
                     opciones = {"a": "recortar", "b": "copiar", "c": "saltear"}
                 g["accion"] = opciones.get(eleccion, opciones[default])
 
+    # Modo de recorte (solo si hay grupos que recortan)
+    necesita_recorte = any(
+        g["accion"] in ("recortar", "convertir_recortar") for g in grupos
+    )
+    if necesita_recorte and not auto_yes:
+        print()
+        modo_recorte = pedir_modo_recorte()
+    else:
+        modo_recorte = "permisivo"
+    for g in grupos:
+        g["modo_recorte"] = modo_recorte
+
     # Plan de ejecución
     print()
     print("  Plan de ejecución:")
@@ -384,6 +396,8 @@ def mostrar_preview_y_seleccionar(
             nombre = g["archivos"][0]["archivo"].name
         accion_texto = _texto_accion(g)
         print(f"    {i}. {nombre:40s} →  {accion_texto}")
+    if necesita_recorte:
+        print(f"\n  Modo de recorte: {modo_recorte}")
     print()
 
     if not auto_yes:
@@ -396,6 +410,25 @@ def mostrar_preview_y_seleccionar(
             return None
 
     return grupos
+
+
+def pedir_modo_recorte() -> str:
+    """
+    Pregunta al usuario el modo de recorte.
+    Devuelve 'fuerte' o 'permisivo'.
+    """
+    print("  Modo de recorte:")
+    print("    f) Fuerte (recorte severo, sin margin)")
+    print("    p) Permisivo (margin default de auto-editor)")
+    print()
+    try:
+        resp = input("  [p]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return "permisivo"
+    if resp in ("f", "fuerte"):
+        return "fuerte"
+    return "permisivo"
 
 
 def _texto_accion(g: dict) -> str:
@@ -418,11 +451,13 @@ def recortar_silencios(
     video_path: Path,
     output_path: Path,
     config: dict,
+    modo_recorte: str = "permisivo",
 ) -> bool:
     """
     Recorta los silencios del video usando auto-editor
     Usa Smart Cut, solo re-encodea los frames en los puntos de corte
     Rápido y sin pérdida de calidad.
+    modo_recorte: 'fuerte' agrega --margin 0s, 'permisivo' usa el default de auto-editor.
     Devuelve True si el proceso fue exitoso
     """
     auto_editor_exe = Path(__file__).parent / config.get(
@@ -437,15 +472,10 @@ def recortar_silencios(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        str(auto_editor_exe),
-        str(video_path),
-        "--margin",
-        "0s",
-        "--no-open",
-        "-o",
-        str(output_path),
-    ]
+    cmd = [str(auto_editor_exe), str(video_path)]
+    if modo_recorte == "fuerte":
+        cmd += ["--margin", "0s"]
+    cmd += ["--no-open", "-o", str(output_path)]
 
     print("    Recortando silencios...")
     t0 = time.time()
@@ -586,7 +616,7 @@ def procesar(config: dict, auto_yes: bool = False):
                 continue
 
             if accion == "recortar":
-                ok = recortar_silencios(archivo, archivo_final, config)
+                ok = recortar_silencios(archivo, archivo_final, config, g["modo_recorte"])
                 if not ok:
                     print("    [SKIP] Error en el recorte.")
                 print()
@@ -599,7 +629,7 @@ def procesar(config: dict, auto_yes: bool = False):
                     print("    [SKIP] Error en la conversión.")
                     print()
                     continue
-                ok = recortar_silencios(temp_video, archivo_final, config)
+                ok = recortar_silencios(temp_video, archivo_final, config, g["modo_recorte"])
                 temp_video.unlink(missing_ok=True)
                 if not ok:
                     print("    [SKIP] Error en el recorte.")
@@ -634,10 +664,10 @@ def procesar(config: dict, auto_yes: bool = False):
                         print(f"    [SKIP] Error en la conversión de {archivo.name}")
                         error = True
                         break
-                    ok = recortar_silencios(temp_video, temp_recortado, config)
+                    ok = recortar_silencios(temp_video, temp_recortado, config, g["modo_recorte"])
                     temp_video.unlink(missing_ok=True)
                 else:
-                    ok = recortar_silencios(archivo, temp_recortado, config)
+                    ok = recortar_silencios(archivo, temp_recortado, config, g["modo_recorte"])
                 if not ok:
                     print(f"    [SKIP] Error en el recorte de {archivo.name}")
                     error = True
